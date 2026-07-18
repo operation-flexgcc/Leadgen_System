@@ -12,7 +12,10 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
-RUN DJANGO_DEBUG=True python manage.py collectstatic --noinput \
+RUN DJANGO_DEBUG=False \
+    DJANGO_SECRET_KEY=container-build-only-secret-key \
+    DJANGO_ALLOWED_HOSTS=localhost \
+    python manage.py collectstatic --noinput \
     && chown -R app:app /app
 
 USER app
