@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · FlexGCC Outreach{% endblock %}
+{% block content %}
+<section class="page-heading">
+    <a class="back-link" href="{% url 'user_list' %}">← User access</a>
+    <p class="eyebrow">System administration</p>
+    <h1>{{ title }}</h1>
+    <p>{% if target_user %}Update this person’s identity or access class.{% else %}The user will sign in with the exact Google email entered here.{% endif %}</p>
+</section>
+
+<form method="post" class="record-form compact-form" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="form-alert">{{ form.non_field_errors }}</div>{% endif %}
+    <section class="form-section">
+        <div class="form-grid user-form-grid">
+            <div class="field field-full">{% include "outreach/field.html" with field=form.full_name %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.email %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.role %}</div>
+        </div>
+        <div class="role-explainer">
+            <p><strong>Sales intern:</strong> sees and updates only assigned prospects.</p>
+            <p><strong>Manager:</strong> sees and updates all intern prospects.</p>
+            <p><strong>System admin:</strong> has manager visibility and controls user access.</p>
+        </div>
+    </section>
+    <div class="form-footer">
+        <a class="button-secondary" href="{% url 'user_list' %}">Cancel</a>
+        <button class="button" type="submit">{% if target_user %}Save changes{% else %}Add user{% endif %}</button>
+    </div>
+</form>
+{% endblock %}

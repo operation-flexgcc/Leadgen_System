@@ -1,0 +1,41 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: flexgcc
+      POSTGRES_USER: flexgcc
+      POSTGRES_PASSWORD: flexgcc
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flexgcc -d flexgcc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
+    environment:
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:-local-development-key}"
+      DJANGO_ALLOWED_HOSTS: "localhost,127.0.0.1"
+      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:8000"
+      DJANGO_SECURE_SSL_REDIRECT: "False"
+      DATABASE_URL: "postgresql://flexgcc:flexgcc@db:5432/flexgcc"
+      GOOGLE_OAUTH_CLIENT_ID: "${GOOGLE_OAUTH_CLIENT_ID:-}"
+      GOOGLE_OAUTH_CLIENT_SECRET: "${GOOGLE_OAUTH_CLIENT_SECRET:-}"
+      GOOGLE_ALLOWED_DOMAINS: "${GOOGLE_ALLOWED_DOMAINS:-}"
+      REQUIRE_PREPROVISIONED_USERS: "True"
+      SYSTEM_ADMIN_EMAILS: "${SYSTEM_ADMIN_EMAILS:-}"
+      MANAGER_EMAILS: "${MANAGER_EMAILS:-}"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

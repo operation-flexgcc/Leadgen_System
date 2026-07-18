@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · FlexGCC Outreach{% endblock %}
+{% block content %}
+<section class="page-heading heading-with-action">
+    <div>
+        <p class="eyebrow">{% if current_user_is_manager %}Team overview{% else %}My pipeline{% endif %}</p>
+        <h1>Good {% now "H" as current_hour %}{% if current_hour < "12" %}morning{% elif current_hour < "17" %}afternoon{% else %}evening{% endif %}, {{ user.first_name|default:"there" }}</h1>
+        <p>Prioritize follow-ups and keep every prospect moving.</p>
+    </div>
+    <a class="button" href="{% url 'prospect_create' %}">+ Add prospect</a>
+</section>
+
+<section class="metric-grid" aria-label="Pipeline summary">
+    <a class="metric-card metric-accent" href="?">
+        <span>Total prospects</span>
+        <strong>{{ summary.total }}</strong>
+        {% if current_user_is_manager %}<small>Across {{ intern_count }} intern{{ intern_count|pluralize }}</small>{% else %}<small>In your pipeline</small>{% endif %}
+    </a>
+    <a class="metric-card" href="?due=today">
+        <span>Actions today</span>
+        <strong>{{ summary.actions_today }}</strong>
+        <small>{{ today|date:"D, j M" }}</small>
+    </a>
+    <a class="metric-card {% if summary.overdue %}metric-warning{% endif %}" href="?due=overdue">
+        <span>Overdue</span>
+        <strong>{{ summary.overdue }}</strong>
+        <small>Needs attention</small>
+    </a>
+    <a class="metric-card" href="?status=meeting_scheduled">
+        <span>Meetings scheduled</span>
+        <strong>{{ summary.meetings_scheduled }}</strong>
+        <small>Upcoming meetings</small>
+    </a>
+</section>
+
+<section class="status-strip" aria-label="Prospects by status">
+    {% for value, label, count in status_summary %}
+    <a href="?status={{ value }}" class="status-chip">
+        <span class="status-dot status-{{ value }}"></span>
+        {{ label }} <strong>{{ count }}</strong>
+    </a>
+    {% endfor %}
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Prospects</h2>
+            <p>{{ page_obj.paginator.count }} matching record{{ page_obj.paginator.count|pluralize }}</p>
+        </div>
+    </div>
+
+    <form class="filter-bar" method="get" aria-label="Prospect filters">
+        <div class="filter-search">
+            <label for="{{ filter_form.search.id_for_label }}">Search</label>
+            {{ filter_form.search }}
+        </div>
+        <div>
+            <label for="{{ filter_form.due.id_for_label }}">Action date</label>
+            {{ filter_form.due }}
+        </div>
+        <div>
+            <label for="{{ filter_form.status.id_for_label }}">Status</label>
+            {{ filter_form.status }}
+        </div>
+        <div>
+            <label for="{{ filter_form.outreach_count.id_for_label }}">Outreaches</label>
+            {{ filter_form.outreach_count }}
+        </div>
+        {% if current_user_is_manager %}
+        <div>
+            <label for="{{ filter_form.owner.id_for_label }}">Intern</label>
+            {{ filter_form.owner }}
+        </div>
+        {% endif %}
+        <div class="filter-actions">
+            <button class="button button-small" type="submit">Apply</button>
+            <a class="button-secondary button-small" href="{% url 'dashboard' %}">Clear</a>
+        </div>
+    </form>
+
+    {% if page_obj.object_list %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Company</th>
+                    <th>Contact</th>
+                    {% if current_user_is_manager %}<th>Intern</th>{% endif %}
+                    <th>Status</th>
+                    <th>Outreaches</th>
+                    <th>Next action</th>
+                    <th><span class="sr-only">Open</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for prospect in page_obj %}
+                <tr>
+                    <td>
+                        <a class="company-link" href="{% url 'prospect_detail' prospect.pk %}">{{ prospect.company_name }}</a>
+                        <span class="cell-secondary">{{ prospect.website|truncatechars:38 }}</span>
+                    </td>
+                    <td>
+                        <span class="contact-name">{{ prospect.contact_name }}</span>
+                        <span class="cell-secondary">{{ prospect.contact_email|default:prospect.contact_phone|default:"LinkedIn contact" }}</span>
+                    </td>
+                    {% if current_user_is_manager %}
+                    <td>
+                        <span class="owner-pill">{{ prospect.owner.get_full_name|default:prospect.owner.email }}</span>
+                    </td>
+                    {% endif %}
+                    <td><span class="badge badge-{{ prospect.status }}">{{ prospect.get_status_display }}</span></td>
+                    <td>
+                        <span class="outreach-count">{{ prospect.outreach_count }}<small>/5</small></span>
+                    </td>
+                    <td>
+                        {% if prospect.next_action %}
+                        <span>{{ prospect.next_action|truncatechars:42 }}</span>
+                        <span class="cell-secondary {% if prospect.next_action_date < today %}text-danger{% elif prospect.next_action_date == today %}text-today{% endif %}">
+                            {% if prospect.next_action_date == today %}Today{% else %}{{ prospect.next_action_date|date:"j M Y" }}{% endif %}
+                        </span>
+                        {% else %}
+                        <span class="muted">Not set</span>
+                        {% endif %}
+                    </td>
+                    <td><a class="row-arrow" href="{% url 'prospect_detail' prospect.pk %}" aria-label="Open {{ prospect.company_name }}">→</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if page_obj.paginator.num_pages > 1 %}
+    <nav class="pagination" aria-label="Prospect pages">
+        {% if page_obj.has_previous %}
+        <a href="?{% if query_string %}{{ query_string }}&amp;{% endif %}page={{ page_obj.previous_page_number }}">← Previous</a>
+        {% else %}<span></span>{% endif %}
+        <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+        <a href="?{% if query_string %}{{ query_string }}&amp;{% endif %}page={{ page_obj.next_page_number }}">Next →</a>
+        {% else %}<span></span>{% endif %}
+    </nav>
+    {% endif %}
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">◎</div>
+        <h3>No prospects match these filters</h3>
+        <p>Clear the filters or add a new prospect to the pipeline.</p>
+        <a class="button" href="{% url 'prospect_create' %}">Add prospect</a>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

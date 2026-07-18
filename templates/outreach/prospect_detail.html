@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ prospect.company_name }} · FlexGCC Outreach{% endblock %}
+{% block content %}
+<section class="detail-heading">
+    <div>
+        <a class="back-link" href="{% url 'dashboard' %}">← Dashboard</a>
+        <div class="detail-title-row">
+            <h1>{{ prospect.company_name }}</h1>
+            <span class="badge badge-{{ prospect.status }}">{{ prospect.get_status_display }}</span>
+        </div>
+        <a class="website-link" href="{{ prospect.website }}" target="_blank" rel="noopener noreferrer">{{ prospect.website }} ↗</a>
+    </div>
+    <a class="button-secondary" href="{% url 'prospect_update' prospect.pk %}">Edit prospect</a>
+</section>
+
+<div class="detail-layout">
+    <div class="detail-main">
+        <section class="panel detail-panel">
+            <div class="panel-header">
+                <div><p class="eyebrow">Account context</p><h2>Company and contact</h2></div>
+            </div>
+            <p class="description-copy">{{ prospect.short_description }}</p>
+            <dl class="info-grid">
+                <div><dt>Contact</dt><dd>{{ prospect.contact_name }}</dd></div>
+                <div><dt>Assigned intern</dt><dd>{{ prospect.owner.get_full_name|default:prospect.owner.email }}</dd></div>
+                <div><dt>Email</dt><dd>{% if prospect.contact_email %}<a href="mailto:{{ prospect.contact_email }}">{{ prospect.contact_email }}</a>{% else %}<span class="muted">Not provided</span>{% endif %}</dd></div>
+                <div><dt>Phone</dt><dd>{% if prospect.contact_phone %}<a href="tel:{{ prospect.contact_phone }}">{{ prospect.contact_phone }}</a>{% else %}<span class="muted">Not provided</span>{% endif %}</dd></div>
+                <div class="info-full"><dt>LinkedIn</dt><dd>{% if prospect.contact_linkedin_url %}<a href="{{ prospect.contact_linkedin_url }}" target="_blank" rel="noopener noreferrer">Open contact page ↗</a>{% else %}<span class="muted">Not provided</span>{% endif %}</dd></div>
+            </dl>
+        </section>
+
+        <section class="panel detail-panel">
+            <div class="panel-header">
+                <div><p class="eyebrow">Activity</p><h2>Outreach history <span class="count-label">{{ outreaches.count }}/5</span></h2></div>
+            </div>
+            {% if outreaches %}
+            <ol class="timeline">
+                {% for outreach in outreaches %}
+                <li>
+                    <div class="timeline-number">{{ outreach.sequence_number }}</div>
+                    <div class="timeline-content">
+                        <div class="timeline-head">
+                            <div><strong>{{ outreach.get_medium_display }}</strong><span>{{ outreach.outreach_date|date:"j M Y" }}</span></div>
+                            <a href="{% url 'outreach_update' outreach.pk %}">Edit</a>
+                        </div>
+                        {% if outreach.response %}<p>{{ outreach.response|linebreaksbr }}</p>{% else %}<p class="muted">No response recorded.</p>{% endif %}
+                        <small>Recorded by {{ outreach.recorded_by.get_full_name|default:outreach.recorded_by.email }}</small>
+                    </div>
+                </li>
+                {% endfor %}
+            </ol>
+            {% endif %}
+
+            {% if can_add_outreach %}
+            <div class="inline-form-wrap">
+                <h3>Record outreach {{ outreaches.count|add:"1" }}</h3>
+                <form method="post" action="{% url 'outreach_add' prospect.pk %}" class="inline-form" novalidate>
+                    {% csrf_token %}
+                    <div class="field">{% include "outreach/field.html" with field=outreach_form.medium %}</div>
+                    <div class="field">{% include "outreach/field.html" with field=outreach_form.outreach_date %}</div>
+                    <div class="field field-full">{% include "outreach/field.html" with field=outreach_form.response %}</div>
+                    <div class="field-full"><button class="button" type="submit">Record outreach</button></div>
+                </form>
+            </div>
+            {% elif not outreaches %}
+            <div class="empty-inline"><p>No outreach recorded yet.</p></div>
+            {% else %}
+            <div class="limit-notice">Maximum of five outreaches recorded.</div>
+            {% endif %}
+        </section>
+    </div>
+
+    <aside class="detail-sidebar">
+        <section class="action-card">
+            <p class="eyebrow">Next action</p>
+            {% if prospect.next_action %}
+            <h2>{{ prospect.next_action }}</h2>
+            <div class="action-date {% if prospect.next_action_date < today %}text-danger{% endif %}">{{ prospect.next_action_date|date:"l, j F Y" }}</div>
+            {% else %}
+            <h2>No next action set</h2>
+            <a href="{% url 'prospect_update' prospect.pk %}">Add a next action →</a>
+            {% endif %}
+        </section>
+        {% if prospect.meeting_scheduled_at %}
+        <section class="side-card meeting-card">
+            <p class="eyebrow">Meeting</p>
+            <strong>{{ prospect.meeting_scheduled_at|date:"D, j M Y" }}</strong>
+            <span>{{ prospect.meeting_scheduled_at|date:"g:i A T" }}</span>
+        </section>
+        {% endif %}
+        <section class="side-card">
+            <p class="eyebrow">Comments</p>
+            {% if prospect.comments %}<p>{{ prospect.comments|linebreaksbr }}</p>{% else %}<p class="muted">No comments yet.</p>{% endif %}
+        </section>
+        <p class="record-meta">Created {{ prospect.created_at|date:"j M Y" }} · Updated {{ prospect.updated_at|timesince }} ago</p>
+    </aside>
+</div>
+{% endblock %}

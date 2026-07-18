@@ -1,0 +1,55 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="FlexGCC Outreach sales prospect and follow-up tracker">
+    <title>{% block title %}FlexGCC Outreach{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+    {% if user.is_authenticated %}
+    <header class="app-header">
+        <div class="header-inner">
+            <a class="brand" href="{% url 'dashboard' %}" aria-label="FlexGCC Outreach dashboard">
+                <span class="brand-mark">F</span>
+                <span>
+                    <strong>FlexGCC</strong>
+                    <small>Outreach</small>
+                </span>
+            </a>
+            <nav class="primary-nav" aria-label="Primary navigation">
+                <a href="{% url 'dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
+                {% if current_user_is_system_admin %}<a href="{% url 'user_list' %}" {% if request.resolver_match.url_name == 'user_list' %}aria-current="page"{% endif %}>Users</a>{% endif %}
+                <a class="button button-small" href="{% url 'prospect_create' %}">+ Add prospect</a>
+            </nav>
+            <div class="account-menu">
+                <span class="user-avatar" aria-hidden="true">{{ user.first_name|default:user.email|first|upper }}</span>
+                <span class="account-copy">
+                    <strong>{{ user.get_full_name|default:user.email }}</strong>
+                    <small>{{ current_user_role_label }}</small>
+                </span>
+                <form method="post" action="{% url 'account_logout' %}">
+                    {% csrf_token %}
+                    <button class="text-button" type="submit">Sign out</button>
+                </form>
+            </div>
+        </div>
+    </header>
+    {% endif %}
+
+    {% if messages %}
+    <div class="messages" aria-live="polite">
+        {% for message in messages %}
+        <div class="message message-{{ message.tags|default:'info' }}">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <main class="{% block main_class %}page-shell{% endblock %}">
+        {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

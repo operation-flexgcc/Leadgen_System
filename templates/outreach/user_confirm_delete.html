@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Delete user · FlexGCC Outreach{% endblock %}
+{% block content %}
+<section class="page-heading">
+    <a class="back-link" href="{% url 'user_list' %}">← User access</a>
+    <p class="eyebrow eyebrow-danger">Confirm deletion</p>
+    <h1>Delete {{ target_user.get_full_name|default:target_user.email }}?</h1>
+    <p>This removes access immediately. If the user owns prospect or outreach history, the system will disable the account instead of deleting its audit record.</p>
+</section>
+<form method="post" class="delete-card">
+    {% csrf_token %}
+    <dl>
+        <div><dt>Email</dt><dd>{{ target_user.email }}</dd></div>
+        <div><dt>Class</dt><dd>{{ target_user.profile.get_role_display }}</dd></div>
+    </dl>
+    <div class="form-footer">
+        <a class="button-secondary" href="{% url 'user_list' %}">Cancel</a>
+        <button class="button-danger" type="submit">Delete user</button>
+    </div>
+</form>
+{% endblock %}

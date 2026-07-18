@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Access denied · FlexGCC Outreach{% endblock %}
+{% block main_class %}login-shell{% endblock %}
+{% block content %}
+<section class="login-card">
+    <span class="brand-mark brand-mark-large">F</span>
+    <p class="eyebrow">Access denied</p>
+    <h1>This account is not approved</h1>
+    <p class="login-intro">{{ reason }}</p>
+    <a class="button button-block" href="{% url 'login' %}">Try another Google account</a>
+</section>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Sign in · FlexGCC Outreach{% endblock %}
+{% block main_class %}login-shell{% endblock %}
+{% block content %}
+<section class="login-card">
+    <div class="login-brand">
+        <span class="brand-mark brand-mark-large">F</span>
+        <div>
+            <p class="eyebrow">FlexGCC</p>
+            <h1>Outreach</h1>
+        </div>
+    </div>
+    <p class="login-intro">Keep prospect follow-ups clear, current, and visible to the whole sales team.</p>
+    <div class="login-points" aria-label="Application features">
+        <span>Track up to five outreaches</span>
+        <span>See today’s actions</span>
+        <span>Manage meeting progress</span>
+    </div>
+    <form method="post" action="/accounts/google/login/">
+        {% csrf_token %}
+        <button class="google-button" type="submit">
+            <span class="google-g" aria-hidden="true">G</span>
+            Continue with Google
+        </button>
+    </form>
+    <p class="login-note">Use the Google account approved by your FlexGCC manager.</p>
+</section>
+{% endblock %}

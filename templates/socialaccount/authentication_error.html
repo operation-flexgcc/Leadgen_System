@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Sign-in error · FlexGCC Outreach{% endblock %}
+{% block main_class %}login-shell{% endblock %}
+{% block content %}
+<section class="login-card">
+    <p class="eyebrow">Sign-in error</p>
+    <h1>Google sign-in could not be completed</h1>
+    <p class="login-intro">Try again. If the problem continues, ask your manager to confirm that your email is approved.</p>
+    <a class="button button-block" href="{% url 'login' %}">Return to sign in</a>
+</section>
+{% endblock %}

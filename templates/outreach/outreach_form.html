@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Edit outreach · FlexGCC Outreach{% endblock %}
+{% block content %}
+<section class="page-heading">
+    <a class="back-link" href="{% url 'prospect_detail' prospect.pk %}">← {{ prospect.company_name }}</a>
+    <p class="eyebrow">Outreach {{ outreach.sequence_number }} of 5</p>
+    <h1>Edit outreach</h1>
+    <p>Update the channel, date, or response while preserving the activity sequence.</p>
+</section>
+<form method="post" class="record-form compact-form" novalidate>
+    {% csrf_token %}
+    <section class="form-section">
+        <div class="form-grid">
+            <div class="field">{% include "outreach/field.html" with field=form.medium %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.outreach_date %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.response %}</div>
+        </div>
+    </section>
+    <div class="form-footer">
+        <a class="button-secondary" href="{% url 'prospect_detail' prospect.pk %}">Cancel</a>
+        <button class="button" type="submit">Save outreach</button>
+    </div>
+</form>
+{% endblock %}

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: ci-only-secret-key
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      DJANGO_SECURE_SSL_REDIRECT: "False"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Check migrations
+        run: python manage.py makemigrations --check --dry-run
+      - name: Run application checks
+        run: python manage.py check
+      - name: Run tests
+        run: python manage.py test
+      - name: Check production security settings
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_SECRET_KEY: ci-only-long-production-check-secret-key-not-used-at-runtime
+          DJANGO_ALLOWED_HOSTS: outreach.example.com
+          DJANGO_CSRF_TRUSTED_ORIGINS: https://outreach.example.com
+          DJANGO_SECURE_SSL_REDIRECT: "True"
+        run: python manage.py check --deploy --fail-level ERROR
+      - name: Build static assets
+        run: python manage.py collectstatic --noinput
+      - name: Build production container
+        run: docker build --tag flexgcc-outreach:${{ github.sha }} .

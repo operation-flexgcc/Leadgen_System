@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ title }} · FlexGCC Outreach{% endblock %}
+{% block content %}
+<section class="page-heading">
+    <a class="back-link" href="{% if prospect %}{% url 'prospect_detail' prospect.pk %}{% else %}{% url 'dashboard' %}{% endif %}">← Back</a>
+    <p class="eyebrow">Prospect record</p>
+    <h1>{{ title }}</h1>
+    <p>Capture enough context for the next person to take action confidently.</p>
+</section>
+
+<form method="post" class="record-form" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="form-alert">{{ form.non_field_errors }}</div>{% endif %}
+
+    <section class="form-section">
+        <div class="form-section-heading">
+            <span>01</span>
+            <div><h2>Company</h2><p>Basic account information.</p></div>
+        </div>
+        <div class="form-grid">
+            {% if form.owner %}
+            <div class="field field-full">{% include "outreach/field.html" with field=form.owner %}</div>
+            {% endif %}
+            <div class="field">{% include "outreach/field.html" with field=form.company_name %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.website %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.short_description %}</div>
+        </div>
+    </section>
+
+    <section class="form-section">
+        <div class="form-section-heading">
+            <span>02</span>
+            <div><h2>Primary contact</h2><p>Add at least one way to reach this person.</p></div>
+        </div>
+        <div class="form-grid">
+            <div class="field">{% include "outreach/field.html" with field=form.contact_name %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.contact_linkedin_url %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.contact_email %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.contact_phone %}</div>
+        </div>
+    </section>
+
+    <section class="form-section">
+        <div class="form-section-heading">
+            <span>03</span>
+            <div><h2>Follow-up</h2><p>Define the current state and next move.</p></div>
+        </div>
+        <div class="form-grid">
+            <div class="field">{% include "outreach/field.html" with field=form.status %}</div>
+            <div class="field meeting-field" data-meeting-field>{% include "outreach/field.html" with field=form.meeting_scheduled_at %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.next_action %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.next_action_date %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.comments %}</div>
+        </div>
+    </section>
+
+    <div class="form-footer">
+        <a class="button-secondary" href="{% if prospect %}{% url 'prospect_detail' prospect.pk %}{% else %}{% url 'dashboard' %}{% endif %}">Cancel</a>
+        <button class="button" type="submit">{% if prospect %}Save changes{% else %}Add prospect{% endif %}</button>
+    </div>
+</form>
+{% endblock %}
+{% block scripts %}<script src="{% static 'js/prospect-form.js' %}" defer></script>{% endblock %}
