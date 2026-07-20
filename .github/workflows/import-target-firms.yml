@@ -1,0 +1,62 @@
+name: Import target firms
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leadgen-production
+  cancel-in-progress: false
+
+jobs:
+  import:
+    name: Import production target-firm queues
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.EC2_SSH }}" | tr -d '\r' > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+          ssh-keyscan -H "${{ secrets.EC2_IP }}" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Import target firms
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            ubuntu@"${{ secrets.EC2_IP }}" \
+            'bash -s' <<'IMPORT'
+          set -euo pipefail
+          repo_dir="/var/www/leadgen/repo"
+          venv_dir="/var/www/leadgen/venv"
+          env_file="${repo_dir}/.env"
+
+          cd "${repo_dir}"
+          set -a
+          # shellcheck disable=SC1090
+          source "${env_file}"
+          set +a
+
+          "${venv_dir}/bin/python" manage.py import_target_firms \
+            --apply \
+            --created-by-email gopala.krishnan@flexgcc.com
+
+          "${venv_dir}/bin/python" manage.py check
+          curl --fail --silent --show-error https://leadgen.flexgcc.com/health/
+          IMPORT
+
+      - name: Remove SSH key
+        if: always()
+        run: rm -f ~/.ssh/ec2_key

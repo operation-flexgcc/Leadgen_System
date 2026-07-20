@@ -51,7 +51,11 @@ def scoped_prospects(user):
     queryset = Prospect.objects.select_related("owner", "owner__profile")
     if is_manager(user):
         return queryset
-    return queryset.filter(owner=user)
+    try:
+        role = user.profile.role
+    except Profile.DoesNotExist:
+        return queryset.none()
+    return queryset.filter(Q(owner=user) | Q(owner__isnull=True, workstream=role))
 
 
 def get_scoped_prospect(user, pk):
@@ -102,6 +106,7 @@ def dashboard(request):
     base_queryset = scoped_prospects(request.user)
     summary = base_queryset.aggregate(
         total=Count("id"),
+        unassigned=Count("id", filter=Q(owner__isnull=True)),
         actions_today=Count("id", filter=Q(next_action_date=today)),
         overdue=Count("id", filter=Q(next_action_date__lt=today)),
         meetings_scheduled=Count("id", filter=Q(status=Prospect.Status.MEETING_SCHEDULED)),
@@ -193,6 +198,9 @@ def prospect_create(request):
 @require_http_methods(["GET", "POST"])
 def prospect_update(request, pk):
     prospect = get_scoped_prospect(request.user, pk)
+    if not is_manager(request.user) and prospect.owner_id != request.user.id:
+        messages.error(request, "Claim this prospect before editing its research or follow-up details.")
+        return redirect(prospect)
     form = ProspectForm(request.POST or None, instance=prospect, user=request.user)
     if request.method == "POST" and form.is_valid():
         prospect = form.save()
@@ -209,6 +217,7 @@ def prospect_update(request, pk):
 def prospect_detail(request, pk):
     prospect = get_scoped_prospect(request.user, pk)
     outreaches = prospect.outreaches.select_related("recorded_by").all()
+    can_edit_prospect = is_manager(request.user) or prospect.owner_id == request.user.id
     return render(
         request,
         "outreach/prospect_detail.html",
@@ -216,7 +225,17 @@ def prospect_detail(request, pk):
             "prospect": prospect,
             "outreaches": outreaches,
             "outreach_form": OutreachForm(prospect=prospect),
-            "can_add_outreach": outreaches.count() < 5,
+            "can_add_outreach": (
+                can_edit_prospect
+                and prospect.stage != Prospect.Stage.RESEARCH
+                and outreaches.count() < 5
+            ),
+            "can_edit_prospect": can_edit_prospect,
+            "can_claim_prospect": (
+                not is_manager(request.user)
+                and prospect.owner_id is None
+                and prospect.workstream == request.user.profile.role
+            ),
             "today": timezone.localdate(),
         },
     )
@@ -227,6 +246,12 @@ def prospect_detail(request, pk):
 def outreach_add(request, pk):
     with transaction.atomic():
         prospect = get_object_or_404(scoped_prospects(request.user).select_for_update(), pk=pk)
+        if prospect.owner_id != request.user.id and not is_manager(request.user):
+            messages.error(request, "Claim this prospect before recording outreach.")
+            return redirect(prospect)
+        if prospect.stage == Prospect.Stage.RESEARCH:
+            messages.error(request, "Complete the required contact and qualification research before recording outreach.")
+            return redirect(prospect)
         existing_numbers = list(prospect.outreaches.order_by("sequence_number").values_list("sequence_number", flat=True))
         if len(existing_numbers) >= 5:
             messages.error(request, "This prospect already has the maximum of five outreach records.")
@@ -254,9 +279,35 @@ def outreach_add(request, pk):
             "outreaches": outreaches,
             "outreach_form": form,
             "can_add_outreach": outreaches.count() < 5,
+            "can_edit_prospect": is_manager(request.user) or prospect.owner_id == request.user.id,
+            "can_claim_prospect": False,
+            "today": timezone.localdate(),
         },
         status=400,
     )
+
+
+@login_required
+@require_POST
+def prospect_claim(request, pk):
+    if is_manager(request.user):
+        messages.error(request, "Managers can assign prospects from the edit screen.")
+        return redirect("dashboard")
+
+    with transaction.atomic():
+        prospect = get_object_or_404(Prospect.objects.select_for_update(), pk=pk)
+        if prospect.workstream != request.user.profile.role:
+            raise PermissionDenied("This prospect belongs to another outreach workstream.")
+        if prospect.owner_id is None:
+            prospect.owner = request.user
+            prospect.save(update_fields=["owner", "updated_at"])
+            messages.success(request, f"{prospect.company_name} is now assigned to you.")
+        elif prospect.owner_id == request.user.id:
+            messages.info(request, f"{prospect.company_name} is already assigned to you.")
+        else:
+            messages.error(request, "Another user has already claimed this prospect.")
+            return redirect("dashboard")
+    return redirect(prospect)
 
 
 @login_required

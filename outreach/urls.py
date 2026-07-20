@@ -9,6 +9,7 @@ urlpatterns = [
     path("prospects/new/", views.prospect_create, name="prospect_create"),
     path("prospects/<int:pk>/", views.prospect_detail, name="prospect_detail"),
     path("prospects/<int:pk>/edit/", views.prospect_update, name="prospect_update"),
+    path("prospects/<int:pk>/claim/", views.prospect_claim, name="prospect_claim"),
     path("prospects/<int:pk>/outreaches/add/", views.outreach_add, name="outreach_add"),
     path("outreaches/<int:pk>/edit/", views.outreach_update, name="outreach_update"),
     path("system/users/", views.user_list, name="user_list"),

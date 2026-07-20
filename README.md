@@ -4,10 +4,10 @@ FlexGCC Outreach is a Google-authenticated partner-outreach tracker for sales in
 
 ## What is implemented
 
-- Shared prospect records with qualification evidence, consulting focus, client segment, senior-contact details, and cross-workstream duplicate suppression.
+- Separate prospect histories per outreach workstream, with qualification evidence, consulting focus, client segment, senior-contact details, and within-workstream duplicate suppression.
 - Three playbook workstreams: sales intern, inside sales, and LinkedIn outreach through either Kandarp Soni or Sunit Kala.
 - Up to five outreach records per prospect, each with playbook activity, medium, date, and response or factual notes.
-- Playbook stages from Eligible through Founder meeting booked, plus next actions, outcome status, comments, and complete meeting handoff details.
+- Playbook stages from Research required and Eligible through Founder meeting booked, plus next actions, outcome status, comments, and complete meeting handoff details.
 - Statuses: Not yet responded, Not interested, Meeting to be scheduled, Meeting scheduled, and Meeting done.
 - Dashboard with 20 prospects per page and manager filters for user class, assigned operator, playbook stage, outcome status, outreach count, today's actions, and overdue/upcoming actions.
 - Google OAuth login with exact-email pre-provisioning and optional Google-domain restriction.
@@ -15,13 +15,30 @@ FlexGCC Outreach is a Google-authenticated partner-outreach tracker for sales in
 
 | Class | Access |
 |---|---|
-| Sales intern | Qualifies firms, originates outreach, and sees only assigned prospects |
-| Inside sales | Runs multi-channel cadence and sees only assigned prospects |
-| LinkedIn outreach | Operates one founder account per prospect and sees only assigned prospects |
+| Sales intern | Qualifies firms, originates outreach, and sees assigned prospects plus its unassigned role queue |
+| Inside sales | Runs multi-channel cadence and sees assigned prospects plus its unassigned role queue |
+| LinkedIn outreach | Operates one founder account per prospect and sees assigned prospects plus its unassigned role queue |
 | Manager | Sees and updates all prospects across all three outreach classes |
 | System admin | Has manager visibility and adds, edits, disables, restores, or deletes users |
 
 Deleting an unused user removes the account. If the user owns prospect or outreach history, the app disables access and retains the account as an audit reference.
+
+## Approved target-firm import
+
+The repository contains the approved Florida/Chicago and NY/MA/CT source lists under `data/target_firms/`. The import is idempotent and creates unassigned records at the **Research required** stage:
+
+- Florida/Chicago: 80 sales-intern records and 80 LinkedIn-outreach records.
+- NY/MA/CT: 90 inside-sales records and 90 LinkedIn-outreach records.
+- Total: 340 workstream records from 170 source firms.
+
+Run a rolled-back rehearsal first, then apply:
+
+```bash
+python manage.py import_target_firms
+python manage.py import_target_firms --apply --created-by-email admin@flexgcc.com
+```
+
+Frontline users see unassigned prospects only in their own user class. They claim a prospect, complete company/contact research, and save it as Eligible before the app permits outreach. Managers can assign unassigned prospects directly from the edit screen. The manual **Import target firms** GitHub workflow runs the same command against production.
 
 ## Local setup with Docker
 
