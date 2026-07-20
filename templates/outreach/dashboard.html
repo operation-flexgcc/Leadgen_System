@@ -5,7 +5,7 @@
     <div>
         <p class="eyebrow">{% if current_user_is_manager %}Team overview{% else %}My pipeline{% endif %}</p>
         <h1>Good {% now "H" as current_hour %}{% if current_hour < "12" %}morning{% elif current_hour < "17" %}afternoon{% else %}evening{% endif %}, {{ user.first_name|default:"there" }}</h1>
-        <p>Prioritize follow-ups and keep every prospect moving.</p>
+        <p>{% if current_user_is_manager %}Compare activity across every outreach class and operator.{% else %}Prioritize follow-ups and keep every prospect moving through the approved playbook.{% endif %}</p>
     </div>
     <a class="button" href="{% url 'prospect_create' %}">+ Add prospect</a>
 </section>
@@ -14,7 +14,7 @@
     <a class="metric-card metric-accent" href="?">
         <span>Total prospects</span>
         <strong>{{ summary.total }}</strong>
-        {% if current_user_is_manager %}<small>Across {{ intern_count }} intern{{ intern_count|pluralize }}</small>{% else %}<small>In your pipeline</small>{% endif %}
+        {% if current_user_is_manager %}<small>Across {{ operator_count }} outreach user{{ operator_count|pluralize }}</small>{% else %}<small>In your pipeline</small>{% endif %}
     </a>
     <a class="metric-card" href="?due=today">
         <span>Actions today</span>
@@ -33,6 +33,31 @@
     </a>
 </section>
 
+{% if current_user_is_manager %}
+<section class="summary-group" aria-label="Prospects by user class">
+    <span class="summary-label">User class</span>
+    <div class="status-strip">
+        {% for value, label, count in workstream_summary %}
+        <a href="?workstream={{ value }}" class="status-chip workstream-chip workstream-{{ value }}">
+            {{ label }} <strong>{{ count }}</strong>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+<section class="summary-group" aria-label="Prospects by playbook stage">
+    <span class="summary-label">Playbook stage</span>
+    <div class="status-strip">
+        {% for value, label, count in stage_summary %}
+        <a href="?stage={{ value }}" class="status-chip">
+            {{ label }} <strong>{{ count }}</strong>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+
+<span class="summary-label">Outcome status</span>
 <section class="status-strip" aria-label="Prospects by status">
     {% for value, label, count in status_summary %}
     <a href="?status={{ value }}" class="status-chip">
@@ -64,12 +89,22 @@
             {{ filter_form.status }}
         </div>
         <div>
+            <label for="{{ filter_form.stage.id_for_label }}">Playbook stage</label>
+            {{ filter_form.stage }}
+        </div>
+        {% if current_user_is_manager %}
+        <div>
+            <label for="{{ filter_form.workstream.id_for_label }}">User class</label>
+            {{ filter_form.workstream }}
+        </div>
+        {% endif %}
+        <div>
             <label for="{{ filter_form.outreach_count.id_for_label }}">Outreaches</label>
             {{ filter_form.outreach_count }}
         </div>
         {% if current_user_is_manager %}
         <div>
-            <label for="{{ filter_form.owner.id_for_label }}">Intern</label>
+            <label for="{{ filter_form.owner.id_for_label }}">Outreach user</label>
             {{ filter_form.owner }}
         </div>
         {% endif %}
@@ -86,8 +121,8 @@
                 <tr>
                     <th>Company</th>
                     <th>Contact</th>
-                    {% if current_user_is_manager %}<th>Intern</th>{% endif %}
-                    <th>Status</th>
+                    {% if current_user_is_manager %}<th>User class</th><th>Assigned user</th>{% endif %}
+                    <th>Stage / status</th>
                     <th>Outreaches</th>
                     <th>Next action</th>
                     <th><span class="sr-only">Open</span></th>
@@ -105,11 +140,15 @@
                         <span class="cell-secondary">{{ prospect.contact_email|default:prospect.contact_phone|default:"LinkedIn contact" }}</span>
                     </td>
                     {% if current_user_is_manager %}
+                    <td><span class="role-badge role-{{ prospect.workstream }}">{{ prospect.get_workstream_display }}</span></td>
                     <td>
                         <span class="owner-pill">{{ prospect.owner.get_full_name|default:prospect.owner.email }}</span>
                     </td>
                     {% endif %}
-                    <td><span class="badge badge-{{ prospect.status }}">{{ prospect.get_status_display }}</span></td>
+                    <td>
+                        <span class="stage-label">{{ prospect.get_stage_display }}</span>
+                        <span class="cell-secondary"><span class="badge badge-{{ prospect.status }}">{{ prospect.get_status_display }}</span></span>
+                    </td>
                     <td>
                         <span class="outreach-count">{{ prospect.outreach_count }}<small>/5</small></span>
                     </td>

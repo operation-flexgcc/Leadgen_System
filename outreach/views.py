@@ -58,6 +58,44 @@ def get_scoped_prospect(user, pk):
     return get_object_or_404(scoped_prospects(user), pk=pk)
 
 
+def sync_prospect_from_outreach(prospect, outreach):
+    update_fields = set()
+    if prospect.stage == Prospect.Stage.ELIGIBLE:
+        prospect.stage = Prospect.Stage.CONTACTED
+        update_fields.add("stage")
+    if outreach.response and prospect.stage in {Prospect.Stage.ELIGIBLE, Prospect.Stage.CONTACTED}:
+        prospect.stage = Prospect.Stage.RESPONDED
+        update_fields.add("stage")
+    if (
+        outreach.activity_type == Outreach.ActivityType.CONNECTION_REQUEST
+        and prospect.linkedin_connection_status
+        in {"", Prospect.LinkedInConnectionStatus.NOT_SENT}
+    ):
+        prospect.linkedin_connection_status = Prospect.LinkedInConnectionStatus.REQUEST_SENT
+        update_fields.add("linkedin_connection_status")
+    elif outreach.activity_type == Outreach.ActivityType.CONNECTION_ACCEPTED:
+        prospect.linkedin_connection_status = Prospect.LinkedInConnectionStatus.ACCEPTED
+        update_fields.add("linkedin_connection_status")
+    elif (
+        outreach.activity_type == Outreach.ActivityType.MATERIAL_SENT
+        or (
+            prospect.workstream == Prospect.Workstream.LINKEDIN_OUTREACH
+            and outreach.activity_type == Outreach.ActivityType.INITIAL_OUTREACH
+        )
+    ) and not prospect.material_shared:
+        prospect.material_shared = Prospect.MaterialShared.ONE_PAGE
+        update_fields.add("material_shared")
+    elif outreach.activity_type == Outreach.ActivityType.FOUNDER_ESCALATION:
+        prospect.founder_escalation_required = True
+        if outreach.response:
+            prospect.founder_escalation_notes = outreach.response
+            update_fields.add("founder_escalation_notes")
+        update_fields.add("founder_escalation_required")
+    if update_fields:
+        update_fields.add("updated_at")
+        prospect.save(update_fields=update_fields)
+
+
 @login_required
 def dashboard(request):
     today = timezone.localdate()
@@ -69,6 +107,10 @@ def dashboard(request):
         meetings_scheduled=Count("id", filter=Q(status=Prospect.Status.MEETING_SCHEDULED)),
     )
     status_counts = {row["status"]: row["total"] for row in base_queryset.values("status").annotate(total=Count("id"))}
+    stage_counts = {row["stage"]: row["total"] for row in base_queryset.values("stage").annotate(total=Count("id"))}
+    workstream_counts = {
+        row["workstream"]: row["total"] for row in base_queryset.values("workstream").annotate(total=Count("id"))
+    }
 
     filter_form = DashboardFilterForm(request.GET or None, user=request.user)
     prospects = base_queryset.annotate(outreach_count=Count("outreaches"))
@@ -80,9 +122,15 @@ def dashboard(request):
                 Q(company_name__icontains=search)
                 | Q(contact_name__icontains=search)
                 | Q(contact_email__icontains=search)
+                | Q(location__icontains=search)
+                | Q(consulting_focus__icontains=search)
             )
         if data.get("status"):
             prospects = prospects.filter(status=data["status"])
+        if data.get("stage"):
+            prospects = prospects.filter(stage=data["stage"])
+        if data.get("workstream"):
+            prospects = prospects.filter(workstream=data["workstream"])
         if data.get("outreach_count") != "" and data.get("outreach_count") is not None:
             prospects = prospects.filter(outreach_count=int(data["outreach_count"]))
         if data.get("due") == "today":
@@ -108,12 +156,22 @@ def dashboard(request):
         "status_summary": [
             (value, label, status_counts.get(value, 0)) for value, label in Prospect.Status.choices
         ],
+        "stage_summary": [
+            (value, label, stage_counts.get(value, 0)) for value, label in Prospect.Stage.choices
+        ],
+        "workstream_summary": [
+            (value, label, workstream_counts.get(value, 0)) for value, label in Prospect.Workstream.choices
+        ],
         "status_choices": Prospect.Status.choices,
         "filter_form": filter_form,
         "page_obj": page_obj,
         "query_string": query_params.urlencode(),
         "today": today,
-        "intern_count": Profile.objects.filter(role=Profile.Role.INTERN, user__is_active=True).count() if is_manager(request.user) else None,
+        "operator_count": (
+            Profile.objects.filter(role__in=Prospect.Workstream.values, user__is_active=True).count()
+            if is_manager(request.user)
+            else None
+        ),
     }
     return render(request, "outreach/dashboard.html", context)
 
@@ -184,6 +242,7 @@ def outreach_add(request, pk):
             except IntegrityError:
                 messages.error(request, "Another outreach was added at the same time. Please try again.")
             else:
+                sync_prospect_from_outreach(prospect, outreach)
                 messages.success(request, f"Outreach {outreach.sequence_number} was recorded.")
                 return redirect(prospect)
     outreaches = prospect.outreaches.select_related("recorded_by").all()
@@ -207,7 +266,8 @@ def outreach_update(request, pk):
     prospect = get_scoped_prospect(request.user, outreach.prospect_id)
     form = OutreachForm(request.POST or None, instance=outreach, prospect=prospect)
     if request.method == "POST" and form.is_valid():
-        form.save()
+        outreach = form.save()
+        sync_prospect_from_outreach(prospect, outreach)
         messages.success(request, f"Outreach {outreach.sequence_number} was updated.")
         return redirect(prospect)
     return render(
@@ -244,6 +304,8 @@ def user_list(request):
     counts = {
         "active": users.filter(user__is_active=True).count(),
         "interns": users.filter(user__is_active=True, role=Profile.Role.INTERN).count(),
+        "inside_sales": users.filter(user__is_active=True, role=Profile.Role.INSIDE_SALES).count(),
+        "linkedin_outreach": users.filter(user__is_active=True, role=Profile.Role.LINKEDIN_OUTREACH).count(),
         "managers": users.filter(user__is_active=True, role=Profile.Role.MANAGER).count(),
         "admins": users.filter(user__is_active=True, role=Profile.Role.SYSTEM_ADMIN).count(),
     }

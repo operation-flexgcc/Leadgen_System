@@ -1,21 +1,24 @@
 # FlexGCC Outreach
 
-FlexGCC Outreach is a Google-authenticated sales prospect and follow-up tracker for interns, managers, and system administrators.
+FlexGCC Outreach is a Google-authenticated partner-outreach tracker for sales interns, inside sales, founder-LinkedIn operators, managers, and system administrators.
 
 ## What is implemented
 
-- Prospect records: company, website, description, contact name, LinkedIn, email, and phone.
-- Up to five outreach records per prospect, each with medium (phone, email, or LinkedIn), date, and response.
-- Next action, next action date, status, comments, and conditional meeting date/time.
+- Shared prospect records with qualification evidence, consulting focus, client segment, senior-contact details, and cross-workstream duplicate suppression.
+- Three playbook workstreams: sales intern, inside sales, and LinkedIn outreach through either Kandarp Soni or Sunit Kala.
+- Up to five outreach records per prospect, each with playbook activity, medium, date, and response or factual notes.
+- Playbook stages from Eligible through Founder meeting booked, plus next actions, outcome status, comments, and complete meeting handoff details.
 - Statuses: Not yet responded, Not interested, Meeting to be scheduled, Meeting scheduled, and Meeting done.
-- Dashboard with 20 prospects per page and filters for today's actions, status, outreach count, assigned intern, overdue/upcoming actions, and search.
+- Dashboard with 20 prospects per page and manager filters for user class, assigned operator, playbook stage, outcome status, outreach count, today's actions, and overdue/upcoming actions.
 - Google OAuth login with exact-email pre-provisioning and optional Google-domain restriction.
-- Three extensible user classes:
+- Five extensible user classes:
 
 | Class | Access |
 |---|---|
-| Sales intern | Sees and updates only assigned prospects |
-| Manager | Sees and updates all intern prospects |
+| Sales intern | Qualifies firms, originates outreach, and sees only assigned prospects |
+| Inside sales | Runs multi-channel cadence and sees only assigned prospects |
+| LinkedIn outreach | Operates one founder account per prospect and sees only assigned prospects |
+| Manager | Sees and updates all prospects across all three outreach classes |
 | System admin | Has manager visibility and adds, edits, disables, restores, or deletes users |
 
 Deleting an unused user removes the account. If the user owns prospect or outreach history, the app disables access and retains the account as an audit reference.
@@ -37,7 +40,7 @@ Configure the local Google client with:
 - Authorized JavaScript origin: `http://localhost:8000`
 - Authorized redirect URI: `http://localhost:8000/accounts/google/login/callback/`
 
-The email in `SYSTEM_ADMIN_EMAILS` can sign in first. Add interns and managers from **Users** before they sign in.
+The email in `SYSTEM_ADMIN_EMAILS` can sign in first. Add outreach users and managers from **Users** before they sign in.
 
 ## Local setup without Docker
 
@@ -86,7 +89,7 @@ The current native EC2 deployment for `leadgen.flexgcc.com` is documented in [`d
 - A system admin can change a user's name, email, or class.
 - System admins cannot remove their own admin role or delete themselves.
 - The last active system admin cannot be downgraded or deleted.
-- `python manage.py set_user_role EMAIL intern|manager|system_admin` is available for emergency server-side role recovery after the user has signed in once.
+- `python manage.py set_user_role EMAIL intern|inside_sales|linkedin_outreach|manager|system_admin` is available for emergency server-side role recovery after the user has signed in once.
 
 ## Architecture
 

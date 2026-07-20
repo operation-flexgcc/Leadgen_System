@@ -6,24 +6,44 @@
     <a class="back-link" href="{% if prospect %}{% url 'prospect_detail' prospect.pk %}{% else %}{% url 'dashboard' %}{% endif %}">← Back</a>
     <p class="eyebrow">Prospect record</p>
     <h1>{{ title }}</h1>
-    <p>Capture enough context for the next person to take action confidently.</p>
+    <p>Capture verified qualification, the role-specific outreach trail, and a clean founder handoff.</p>
 </section>
 
-<form method="post" class="record-form" novalidate>
+<form method="post" class="record-form" novalidate data-prospect-form data-initial-workstream="{{ form.workstream_value }}">
     {% csrf_token %}
+    {% if form.workstream.is_hidden %}{{ form.workstream }}{% endif %}
     {% if form.non_field_errors %}<div class="form-alert">{{ form.non_field_errors }}</div>{% endif %}
+
+    <section class="playbook-guidance" aria-label="Workstream guidance">
+        <div data-guidance="intern">
+            <strong>Sales intern workflow</strong>
+            <span>Research account → confirm eligibility → personalize one factual line → use approved cadence → book and hand off.</span>
+        </div>
+        <div data-guidance="inside_sales">
+            <strong>Inside-sales workflow</strong>
+            <span>Confirm basic fit → run the Day 1, 3-4, 7-8 and 12-14 cadence → record interest → book the founder meeting.</span>
+        </div>
+        <div data-guidance="linkedin_outreach">
+            <strong>LinkedIn outreach workflow</strong>
+            <span>Use one founder account only → send connection request → wait for acceptance → send one-page overview → escalate substantive replies.</span>
+        </div>
+    </section>
 
     <section class="form-section">
         <div class="form-section-heading">
             <span>01</span>
-            <div><h2>Company</h2><p>Basic account information.</p></div>
+            <div><h2>Assignment and company</h2><p>One owner and one workstream prevent overlapping outreach.</p></div>
         </div>
         <div class="form-grid">
+            {% if not form.workstream.is_hidden %}
+            <div class="field">{% include "outreach/field.html" with field=form.workstream %}</div>
+            {% endif %}
             {% if form.owner %}
-            <div class="field field-full">{% include "outreach/field.html" with field=form.owner %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.owner %}</div>
             {% endif %}
             <div class="field">{% include "outreach/field.html" with field=form.company_name %}</div>
             <div class="field">{% include "outreach/field.html" with field=form.website %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.location %}</div>
             <div class="field field-full">{% include "outreach/field.html" with field=form.short_description %}</div>
         </div>
     </section>
@@ -31,26 +51,67 @@
     <section class="form-section">
         <div class="form-section-heading">
             <span>02</span>
-            <div><h2>Primary contact</h2><p>Add at least one way to reach this person.</p></div>
+            <div><h2>Eligibility</h2><p>Stop after verifying boutique consultancy, SMB/mid-market fit, and a relevant senior contact.</p></div>
         </div>
         <div class="form-grid">
-            <div class="field">{% include "outreach/field.html" with field=form.contact_name %}</div>
-            <div class="field">{% include "outreach/field.html" with field=form.contact_linkedin_url %}</div>
-            <div class="field">{% include "outreach/field.html" with field=form.contact_email %}</div>
-            <div class="field">{% include "outreach/field.html" with field=form.contact_phone %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.consulting_focus %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.client_segment %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.eligibility_evidence %}</div>
         </div>
     </section>
 
     <section class="form-section">
         <div class="form-section-heading">
             <span>03</span>
-            <div><h2>Follow-up</h2><p>Define the current state and next move.</p></div>
+            <div><h2>Primary contact</h2><p>Record the senior contact and at least one verified way to reach them.</p></div>
+        </div>
+        <div class="form-grid">
+            <div class="field">{% include "outreach/field.html" with field=form.contact_name %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.contact_title %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.contact_linkedin_url %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.contact_email %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.contact_phone %}</div>
+        </div>
+    </section>
+
+    <section class="form-section workstream-section" data-workstream-section="linkedin_outreach">
+        <div class="form-section-heading">
+            <span>04</span>
+            <div><h2>Founder LinkedIn account</h2><p>Never contact the same person or firm from both founder accounts.</p></div>
+        </div>
+        <div class="form-grid">
+            <div class="field">{% include "outreach/field.html" with field=form.founder_account %}</div>
+            <div class="field">{% include "outreach/field.html" with field=form.linkedin_connection_status %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.personalization_note %}</div>
+            <div class="field checkbox-field">{% include "outreach/field.html" with field=form.founder_escalation_required %}</div>
+            <div class="field field-full escalation-notes" data-escalation-notes>{% include "outreach/field.html" with field=form.founder_escalation_notes %}</div>
+        </div>
+    </section>
+
+    <section class="form-section">
+        <div class="form-section-heading">
+            <span data-section-number data-default-number="04" data-linkedin-number="05">05</span>
+            <div><h2>Interest and handoff</h2><p>Give founders only verified facts, material shared, explicit questions, and confirmed meeting details.</p></div>
+        </div>
+        <div class="form-grid">
+            <div class="field">{% include "outreach/field.html" with field=form.material_shared %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.interest_signal %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.questions_for_founders %}</div>
+        </div>
+    </section>
+
+    <section class="form-section">
+        <div class="form-section-heading">
+            <span data-section-number data-default-number="05" data-linkedin-number="06">06</span>
+            <div><h2>Follow-up</h2><p>Update the outcome and define one clear next action.</p></div>
         </div>
         <div class="form-grid">
             <div class="field">{% include "outreach/field.html" with field=form.status %}</div>
-            <div class="field meeting-field" data-meeting-field>{% include "outreach/field.html" with field=form.meeting_scheduled_at %}</div>
             <div class="field">{% include "outreach/field.html" with field=form.next_action %}</div>
             <div class="field">{% include "outreach/field.html" with field=form.next_action_date %}</div>
+            <div class="field meeting-field" data-meeting-field>{% include "outreach/field.html" with field=form.meeting_scheduled_at %}</div>
+            <div class="field meeting-field" data-meeting-field>{% include "outreach/field.html" with field=form.meeting_timezone %}</div>
+            <div class="field meeting-field field-full" data-meeting-field>{% include "outreach/field.html" with field=form.meeting_participants %}</div>
             <div class="field field-full">{% include "outreach/field.html" with field=form.comments %}</div>
         </div>
     </section>

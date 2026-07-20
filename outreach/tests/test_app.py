@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from outreach.adapters import FlexGCCSocialAccountAdapter
-from outreach.forms import ProspectForm
+from outreach.forms import OutreachForm, ProspectForm
 from outreach.models import Outreach, Profile, Prospect
 
 
@@ -29,18 +29,44 @@ class AppTestMixin:
         return user
 
     def make_prospect(self, owner, company="Acme Health", **overrides):
+        owner_role = owner.profile.role
         values = {
             "owner": owner,
             "created_by": overrides.pop("created_by", owner),
+            "workstream": owner_role if owner_role in Prospect.Workstream.values else Prospect.Workstream.INTERN,
             "company_name": company,
             "website": "https://example.com",
             "short_description": "Healthcare operations platform.",
+            "location": "Chicago, Illinois",
+            "consulting_focus": "Operations consulting",
+            "client_segment": "Small and mid-sized businesses",
+            "eligibility_evidence": "Independent consultancy serving mid-market clients.",
             "contact_name": "Asha Rao",
+            "contact_title": "Managing Partner",
             "contact_email": "asha@example.com",
             "status": Prospect.Status.NOT_RESPONDED,
         }
         values.update(overrides)
         return Prospect.objects.create(**values)
+
+    def prospect_form_data(self, **overrides):
+        values = {
+            "workstream": Prospect.Workstream.INTERN,
+            "company_name": "New Advisory",
+            "website": "https://new-advisory.example.com",
+            "short_description": "Boutique operations consultancy.",
+            "location": "Chicago, Illinois",
+            "consulting_focus": "Operations and growth advisory",
+            "client_segment": "Small and mid-sized businesses",
+            "eligibility_evidence": "Founder-led firm with published mid-market case studies.",
+            "contact_name": "Asha Rao",
+            "contact_title": "Managing Partner",
+            "contact_email": "asha@new-advisory.example.com",
+            "status": Prospect.Status.NOT_RESPONDED,
+            "material_shared": "",
+        }
+        values.update(overrides)
+        return values
 
 
 class ProspectValidationTests(AppTestMixin, TestCase):
@@ -82,6 +108,29 @@ class ProspectValidationTests(AppTestMixin, TestCase):
         )
         self.assertFalse(form.is_valid())
         self.assertIn("next_action_date", form.errors)
+
+    def test_intern_entry_requires_playbook_qualification_fields(self):
+        form = ProspectForm(
+            data={
+                "workstream": Prospect.Workstream.INTERN,
+                "company_name": "Incomplete Advisory",
+                "website": "https://incomplete.example.com",
+                "short_description": "Description",
+                "contact_name": "Person",
+                "contact_email": "person@incomplete.example.com",
+                "status": Prospect.Status.NOT_RESPONDED,
+            },
+            user=self.intern,
+        )
+        self.assertFalse(form.is_valid())
+        for field_name in [
+            "location",
+            "consulting_focus",
+            "client_segment",
+            "eligibility_evidence",
+            "contact_title",
+        ]:
+            self.assertIn(field_name, form.errors)
 
 
 class DashboardPermissionTests(AppTestMixin, TestCase):
@@ -145,6 +194,248 @@ class DashboardPermissionTests(AppTestMixin, TestCase):
         second_page = self.client.get(reverse("dashboard"), {"page": 2})
         self.assertEqual(len(first_page.context["page_obj"]), 20)
         self.assertEqual(len(second_page.context["page_obj"]), 1)
+
+
+class MultiRoleWorkflowTests(AppTestMixin, TestCase):
+    def setUp(self):
+        self.intern = self.make_user("intern@example.com", name="Isha Intern")
+        self.inside_sales = self.make_user(
+            "inside@example.com", Profile.Role.INSIDE_SALES, "Ivan Inside Sales"
+        )
+        self.linkedin_operator = self.make_user(
+            "linkedin@example.com", Profile.Role.LINKEDIN_OUTREACH, "Leena LinkedIn"
+        )
+        self.manager = self.make_user("manager@example.com", Profile.Role.MANAGER, "Meera Manager")
+
+    def make_linkedin_prospect(self):
+        return self.make_prospect(
+            self.linkedin_operator,
+            "LinkedIn Advisory",
+            website="https://linkedin-advisory.example.com",
+            workstream=Prospect.Workstream.LINKEDIN_OUTREACH,
+            contact_linkedin_url="https://www.linkedin.com/in/asha-rao",
+            founder_account=Prospect.FounderAccount.KANDARP_SONI,
+            linkedin_connection_status=Prospect.LinkedInConnectionStatus.NOT_SENT,
+            personalization_note="Chicago operations practice.",
+        )
+
+    def test_inside_sales_user_can_create_own_workstream_record(self):
+        self.client.force_login(self.inside_sales)
+        response = self.client.post(
+            reverse("prospect_create"),
+            self.prospect_form_data(
+                workstream=Prospect.Workstream.INSIDE_SALES,
+                company_name="Inside Sales Advisory",
+                website="https://inside-sales-advisory.example.com",
+                contact_email="partner@inside-sales-advisory.example.com",
+            ),
+        )
+        prospect = Prospect.objects.get(company_name="Inside Sales Advisory")
+        self.assertRedirects(response, prospect.get_absolute_url())
+        self.assertEqual(prospect.owner, self.inside_sales)
+        self.assertEqual(prospect.workstream, Prospect.Workstream.INSIDE_SALES)
+        self.assertEqual(prospect.stage, Prospect.Stage.ELIGIBLE)
+
+    def test_linkedin_workstream_requires_founder_account_and_personalization(self):
+        form = ProspectForm(
+            data=self.prospect_form_data(
+                workstream=Prospect.Workstream.LINKEDIN_OUTREACH,
+                contact_email="",
+                contact_linkedin_url="https://www.linkedin.com/in/prospect",
+            ),
+            user=self.linkedin_operator,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("founder_account", form.errors)
+        self.assertIn("linkedin_connection_status", form.errors)
+        self.assertIn("personalization_note", form.errors)
+
+    def test_manager_must_match_owner_class_to_workstream(self):
+        form = ProspectForm(
+            data=self.prospect_form_data(
+                workstream=Prospect.Workstream.INSIDE_SALES,
+                owner=self.intern.pk,
+            ),
+            user=self.manager,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("owner", form.errors)
+
+    def test_duplicate_company_domain_is_blocked_across_workstreams(self):
+        self.make_prospect(self.intern, "Existing Advisory", website="https://advisory.example.com")
+        form = ProspectForm(
+            data=self.prospect_form_data(
+                workstream=Prospect.Workstream.INSIDE_SALES,
+                website="https://www.advisory.example.com/about",
+            ),
+            user=self.inside_sales,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("Potential duplicate", form.non_field_errors()[0])
+
+    def test_linkedin_activity_updates_connection_and_playbook_stage(self):
+        prospect = self.make_linkedin_prospect()
+        self.client.force_login(self.linkedin_operator)
+        response = self.client.post(
+            reverse("outreach_add", args=[prospect.pk]),
+            {
+                "activity_type": Outreach.ActivityType.CONNECTION_REQUEST,
+                "medium": Outreach.Medium.LINKEDIN,
+                "outreach_date": timezone.localdate().isoformat(),
+            },
+        )
+        self.assertRedirects(response, prospect.get_absolute_url())
+        prospect.refresh_from_db()
+        self.assertEqual(prospect.stage, Prospect.Stage.CONTACTED)
+        self.assertEqual(
+            prospect.linkedin_connection_status,
+            Prospect.LinkedInConnectionStatus.REQUEST_SENT,
+        )
+
+        response = self.client.post(
+            reverse("outreach_add", args=[prospect.pk]),
+            {
+                "activity_type": Outreach.ActivityType.CONNECTION_ACCEPTED,
+                "medium": Outreach.Medium.LINKEDIN,
+                "outreach_date": timezone.localdate().isoformat(),
+            },
+        )
+        self.assertRedirects(response, prospect.get_absolute_url())
+        prospect.refresh_from_db()
+        self.assertEqual(
+            prospect.linkedin_connection_status,
+            Prospect.LinkedInConnectionStatus.ACCEPTED,
+        )
+
+        response = self.client.post(
+            reverse("outreach_add", args=[prospect.pk]),
+            {
+                "activity_type": Outreach.ActivityType.INBOUND_RESPONSE,
+                "medium": Outreach.Medium.LINKEDIN,
+                "outreach_date": timezone.localdate().isoformat(),
+                "response": "Interested in a founder conversation.",
+            },
+        )
+        self.assertRedirects(response, prospect.get_absolute_url())
+        prospect.refresh_from_db()
+        self.assertEqual(prospect.stage, Prospect.Stage.RESPONDED)
+
+    def test_linkedin_outreach_form_locks_medium_to_linkedin(self):
+        prospect = self.make_linkedin_prospect()
+        form = OutreachForm(
+            data={
+                "activity_type": Outreach.ActivityType.CONNECTION_REQUEST,
+                "medium": Outreach.Medium.PHONE,
+                "outreach_date": timezone.localdate().isoformat(),
+            },
+            prospect=prospect,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["medium"], Outreach.Medium.LINKEDIN)
+
+    def test_linkedin_form_defaults_to_the_next_valid_connection_activity(self):
+        prospect = self.make_linkedin_prospect()
+        self.assertEqual(
+            OutreachForm(prospect=prospect)["activity_type"].value(),
+            Outreach.ActivityType.CONNECTION_REQUEST,
+        )
+
+        prospect.linkedin_connection_status = Prospect.LinkedInConnectionStatus.REQUEST_SENT
+        prospect.save(update_fields=["linkedin_connection_status"])
+        self.assertEqual(
+            OutreachForm(prospect=prospect)["activity_type"].value(),
+            Outreach.ActivityType.CONNECTION_ACCEPTED,
+        )
+
+    def test_editing_old_connection_request_does_not_regress_accepted_state(self):
+        prospect = self.make_linkedin_prospect()
+        outreach = Outreach.objects.create(
+            prospect=prospect,
+            sequence_number=1,
+            activity_type=Outreach.ActivityType.CONNECTION_REQUEST,
+            medium=Outreach.Medium.LINKEDIN,
+            outreach_date=timezone.localdate(),
+            recorded_by=self.linkedin_operator,
+        )
+        prospect.linkedin_connection_status = Prospect.LinkedInConnectionStatus.ACCEPTED
+        prospect.stage = Prospect.Stage.CONTACTED
+        prospect.save(update_fields=["linkedin_connection_status", "stage"])
+
+        self.client.force_login(self.linkedin_operator)
+        response = self.client.post(
+            reverse("outreach_update", args=[outreach.pk]),
+            {
+                "activity_type": Outreach.ActivityType.CONNECTION_REQUEST,
+                "medium": Outreach.Medium.LINKEDIN,
+                "outreach_date": timezone.localdate().isoformat(),
+                "response": "Corrected historical note.",
+            },
+        )
+
+        self.assertRedirects(response, prospect.get_absolute_url())
+        prospect.refresh_from_db()
+        self.assertEqual(
+            prospect.linkedin_connection_status,
+            Prospect.LinkedInConnectionStatus.ACCEPTED,
+        )
+
+    def test_linkedin_post_acceptance_message_is_blocked_until_connection_is_accepted(self):
+        prospect = self.make_linkedin_prospect()
+        form = OutreachForm(
+            data={
+                "activity_type": Outreach.ActivityType.INITIAL_OUTREACH,
+                "medium": Outreach.Medium.LINKEDIN,
+                "outreach_date": timezone.localdate().isoformat(),
+            },
+            prospect=prospect,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("accepted", form.errors["activity_type"][0])
+
+    def test_manager_filters_dashboard_by_user_class(self):
+        inside = self.make_prospect(
+            self.inside_sales,
+            "Inside Prospect",
+            website="https://inside.example.com",
+        )
+        linkedin = self.make_linkedin_prospect()
+        self.client.force_login(self.manager)
+        response = self.client.get(
+            reverse("dashboard"),
+            {"workstream": Prospect.Workstream.INSIDE_SALES},
+        )
+        self.assertContains(response, inside.company_name)
+        self.assertNotContains(response, linkedin.company_name)
+
+    def test_manager_sees_all_operator_classes_and_frontline_users_remain_scoped(self):
+        inside = self.make_prospect(
+            self.inside_sales,
+            "Inside Visibility",
+            website="https://inside-visibility.example.com",
+        )
+        linkedin = self.make_linkedin_prospect()
+        self.client.force_login(self.manager)
+        manager_dashboard = self.client.get(reverse("dashboard"))
+        self.assertContains(manager_dashboard, inside.company_name)
+        self.assertContains(manager_dashboard, linkedin.company_name)
+
+        self.client.force_login(self.inside_sales)
+        self.assertEqual(
+            self.client.get(reverse("prospect_detail", args=[linkedin.pk])).status_code,
+            404,
+        )
+
+    def test_scheduled_meeting_requires_timezone_and_participants(self):
+        form = ProspectForm(
+            data=self.prospect_form_data(
+                status=Prospect.Status.MEETING_SCHEDULED,
+                meeting_scheduled_at="2026-08-01T10:00",
+            ),
+            user=self.intern,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("meeting_timezone", form.errors)
+        self.assertIn("meeting_participants", form.errors)
 
 
 class OutreachWorkflowTests(AppTestMixin, TestCase):
@@ -212,6 +503,20 @@ class SystemAdminTests(AppTestMixin, TestCase):
         self.assertFalse(user.has_usable_password())
         self.assertEqual(user.profile.role, Profile.Role.MANAGER)
         self.assertTrue(EmailAddress.objects.filter(user=user, email="maya@example.com", primary=True).exists())
+
+    def test_admin_can_create_both_new_outreach_user_classes(self):
+        self.client.force_login(self.admin)
+        for role, email, name in [
+            (Profile.Role.INSIDE_SALES, "inside@example.com", "Ivan Inside"),
+            (Profile.Role.LINKEDIN_OUTREACH, "linkedin@example.com", "Leena LinkedIn"),
+        ]:
+            with self.subTest(role=role):
+                response = self.client.post(
+                    reverse("user_create"),
+                    {"full_name": name, "email": email, "role": role},
+                )
+                self.assertRedirects(response, reverse("user_list"))
+                self.assertEqual(get_user_model().objects.get(email=email).profile.role, role)
 
     def test_delete_unlinked_user_removes_account(self):
         target = self.make_user("unused@example.com")
