@@ -18,8 +18,8 @@ class OutreachInline(admin.TabularInline):
 
 @admin.register(Prospect)
 class ProspectAdmin(admin.ModelAdmin):
-    list_display = ("company_name", "workstream", "owner", "stage", "status", "next_action_date", "updated_at")
-    list_filter = ("workstream", "stage", "status", "owner")
+    list_display = ("company_name", "workstream", "owner", "stage", "import_source", "status", "next_action_date", "updated_at")
+    list_filter = ("workstream", "stage", "import_source", "status", "owner")
     search_fields = ("company_name", "contact_name", "contact_email")
     date_hierarchy = "created_at"
     inlines = [OutreachInline]

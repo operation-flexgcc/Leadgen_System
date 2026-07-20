@@ -27,6 +27,7 @@ class Prospect(models.Model):
         LINKEDIN_OUTREACH = Profile.Role.LINKEDIN_OUTREACH, "LinkedIn outreach"
 
     class Stage(models.TextChoices):
+        RESEARCH = "research", "Research required"
         ELIGIBLE = "eligible", "Eligible"
         CONTACTED = "contacted", "Contacted"
         RESPONDED = "responded", "Responded"
@@ -63,6 +64,8 @@ class Prospect(models.Model):
         on_delete=models.PROTECT,
         related_name="prospects",
         help_text="Outreach operator responsible for this prospect.",
+        null=True,
+        blank=True,
     )
     workstream = models.CharField(
         max_length=30,
@@ -78,12 +81,12 @@ class Prospect(models.Model):
     )
     company_name = models.CharField(max_length=200, db_index=True)
     website = models.URLField(max_length=500)
-    short_description = models.TextField(max_length=1000)
+    short_description = models.TextField(max_length=1000, blank=True)
     location = models.CharField(max_length=200, blank=True)
     consulting_focus = models.CharField(max_length=300, blank=True)
     client_segment = models.CharField(max_length=300, blank=True)
     eligibility_evidence = models.TextField(blank=True)
-    contact_name = models.CharField(max_length=200)
+    contact_name = models.CharField(max_length=200, blank=True)
     contact_title = models.CharField(max_length=200, blank=True)
     contact_linkedin_url = models.URLField(max_length=500, blank=True)
     contact_email = models.EmailField(blank=True)
@@ -111,6 +114,8 @@ class Prospect(models.Model):
     meeting_scheduled_at = models.DateTimeField(null=True, blank=True)
     meeting_timezone = models.CharField(max_length=80, blank=True)
     meeting_participants = models.CharField(max_length=500, blank=True)
+    import_source = models.CharField(max_length=120, blank=True)
+    import_key = models.CharField(max_length=300, blank=True)
     comments = models.TextField(blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -127,10 +132,18 @@ class Prospect(models.Model):
             models.Index(fields=["owner", "next_action_date"]),
             models.Index(fields=["workstream", "stage"]),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workstream", "import_key"],
+                condition=~models.Q(import_key=""),
+                name="unique_imported_firm_per_workstream",
+            ),
+        ]
 
     def clean(self):
         errors = {}
-        if not any([self.contact_email, self.contact_phone, self.contact_linkedin_url]):
+        research_required = self.stage == self.Stage.RESEARCH
+        if not research_required and not any([self.contact_email, self.contact_phone, self.contact_linkedin_url]):
             errors["contact_email"] = "Add at least one contact method: email, phone, or LinkedIn."
         if self.owner_id:
             try:
@@ -141,7 +154,7 @@ class Prospect(models.Model):
                 errors["owner"] = "Assign this prospect to a sales intern, inside-sales user, or LinkedIn-outreach user."
             elif owner_role != self.workstream:
                 errors["owner"] = "The assigned user's class must match the selected workstream."
-        if self.workstream == self.Workstream.LINKEDIN_OUTREACH:
+        if not research_required and self.workstream == self.Workstream.LINKEDIN_OUTREACH:
             if not self.contact_linkedin_url:
                 errors["contact_linkedin_url"] = "A LinkedIn profile is required for LinkedIn outreach."
             if not self.founder_account:

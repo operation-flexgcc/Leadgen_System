@@ -3,7 +3,7 @@
 {% block content %}
 <section class="page-heading heading-with-action">
     <div>
-        <p class="eyebrow">{% if current_user_is_manager %}Team overview{% else %}My pipeline{% endif %}</p>
+        <p class="eyebrow">{% if current_user_is_manager %}Team overview{% else %}My pipeline and role queue{% endif %}</p>
         <h1>Good {% now "H" as current_hour %}{% if current_hour < "12" %}morning{% elif current_hour < "17" %}afternoon{% else %}evening{% endif %}, {{ user.first_name|default:"there" }}</h1>
         <p>{% if current_user_is_manager %}Compare activity across every outreach class and operator.{% else %}Prioritize follow-ups and keep every prospect moving through the approved playbook.{% endif %}</p>
     </div>
@@ -14,7 +14,7 @@
     <a class="metric-card metric-accent" href="?">
         <span>Total prospects</span>
         <strong>{{ summary.total }}</strong>
-        {% if current_user_is_manager %}<small>Across {{ operator_count }} outreach user{{ operator_count|pluralize }}</small>{% else %}<small>In your pipeline</small>{% endif %}
+        {% if current_user_is_manager %}<small>{{ summary.unassigned }} unassigned · {{ operator_count }} active outreach user{{ operator_count|pluralize }}</small>{% else %}<small>Assigned to you or ready to claim</small>{% endif %}
     </a>
     <a class="metric-card" href="?due=today">
         <span>Actions today</span>
@@ -136,13 +136,13 @@
                         <span class="cell-secondary">{{ prospect.website|truncatechars:38 }}</span>
                     </td>
                     <td>
-                        <span class="contact-name">{{ prospect.contact_name }}</span>
-                        <span class="cell-secondary">{{ prospect.contact_email|default:prospect.contact_phone|default:"LinkedIn contact" }}</span>
+                        <span class="contact-name">{{ prospect.contact_name|default:"Research required" }}</span>
+                        <span class="cell-secondary">{{ prospect.contact_email|default:prospect.contact_phone|default:"No contact channel yet" }}</span>
                     </td>
                     {% if current_user_is_manager %}
                     <td><span class="role-badge role-{{ prospect.workstream }}">{{ prospect.get_workstream_display }}</span></td>
                     <td>
-                        <span class="owner-pill">{{ prospect.owner.get_full_name|default:prospect.owner.email }}</span>
+                        {% if prospect.owner %}<span class="owner-pill">{{ prospect.owner.get_full_name|default:prospect.owner.email }}</span>{% else %}<span class="muted">Unassigned</span>{% endif %}
                     </td>
                     {% endif %}
                     <td>

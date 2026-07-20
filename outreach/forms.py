@@ -104,10 +104,12 @@ class ProspectForm(forms.ModelForm):
         self.workstream_value = selected_workstream
 
         for field_name in [
+            "short_description",
             "location",
             "consulting_focus",
             "client_segment",
             "eligibility_evidence",
+            "contact_name",
             "contact_title",
         ]:
             self.fields[field_name].required = True
@@ -129,6 +131,7 @@ class ProspectForm(forms.ModelForm):
                 get_user_model().objects.filter(owner_query).select_related("profile").order_by("first_name", "email")
             )
             self.fields["owner"].label = "Assigned outreach user"
+            self.fields["owner"].empty_label = "Unassigned role queue"
             self.fields["owner"].label_from_instance = lambda operator: (
                 f"{operator.get_full_name() or operator.email} - {operator.profile.get_role_display()}"
             )
@@ -166,7 +169,11 @@ class ProspectForm(forms.ModelForm):
         linkedin_url = cleaned_data.get("contact_linkedin_url")
         website_host = self._normalized_website_host(website) if website else ""
         normalized_linkedin = self._normalized_linkedin_url(linkedin_url) if linkedin_url else ""
-        duplicates = Prospect.objects.exclude(pk=self.instance.pk).select_related("owner")
+        duplicates = (
+            Prospect.objects.exclude(pk=self.instance.pk)
+            .filter(workstream=workstream)
+            .select_related("owner")
+        )
         for existing in duplicates.only("company_name", "website", "contact_linkedin_url", "owner__email"):
             same_website = website_host and website_host == self._normalized_website_host(existing.website)
             same_contact = (
@@ -174,11 +181,15 @@ class ProspectForm(forms.ModelForm):
                 and normalized_linkedin == self._normalized_linkedin_url(existing.contact_linkedin_url)
             )
             if same_website or same_contact:
-                operator = existing.owner.get_full_name() or existing.owner.email
+                if existing.owner:
+                    operator = existing.owner.get_full_name() or existing.owner.email
+                else:
+                    operator = "the unassigned role queue"
                 match = "company website" if same_website else "contact LinkedIn profile"
                 raise forms.ValidationError(
-                    f"Potential duplicate: {existing.company_name} already uses this {match} and is assigned to {operator}. "
-                    "Ask a manager to transfer the existing record instead of creating overlapping outreach."
+                    f"Potential duplicate in the {existing.get_workstream_display()} workstream: "
+                    f"{existing.company_name} already uses this {match} and is assigned to {operator}. "
+                    "Claim or transfer the existing record instead of creating another record in the same workstream."
                 )
 
         return cleaned_data
@@ -188,6 +199,8 @@ class ProspectForm(forms.ModelForm):
         if not is_manager(self.user):
             prospect.owner = self.user
             prospect.workstream = self.user.profile.role
+        if prospect.stage == Prospect.Stage.RESEARCH:
+            prospect.stage = Prospect.Stage.ELIGIBLE
         if prospect.workstream != Prospect.Workstream.LINKEDIN_OUTREACH:
             prospect.founder_account = ""
             prospect.linkedin_connection_status = ""

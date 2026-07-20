@@ -1,10 +1,12 @@
 from datetime import timedelta
+from io import StringIO
 from unittest.mock import patch
 
 from allauth.account.models import EmailAddress
 from allauth.socialaccount.models import SocialAccount, SocialLogin
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -261,8 +263,23 @@ class MultiRoleWorkflowTests(AppTestMixin, TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("owner", form.errors)
 
-    def test_duplicate_company_domain_is_blocked_across_workstreams(self):
+    def test_same_company_can_have_separate_workstream_histories(self):
         self.make_prospect(self.intern, "Existing Advisory", website="https://advisory.example.com")
+        form = ProspectForm(
+            data=self.prospect_form_data(
+                workstream=Prospect.Workstream.INSIDE_SALES,
+                website="https://www.advisory.example.com/about",
+            ),
+            user=self.inside_sales,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_duplicate_company_domain_is_blocked_within_a_workstream(self):
+        self.make_prospect(
+            self.inside_sales,
+            "Existing Advisory",
+            website="https://advisory.example.com",
+        )
         form = ProspectForm(
             data=self.prospect_form_data(
                 workstream=Prospect.Workstream.INSIDE_SALES,
@@ -436,6 +453,119 @@ class MultiRoleWorkflowTests(AppTestMixin, TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("meeting_timezone", form.errors)
         self.assertIn("meeting_participants", form.errors)
+
+
+class UnassignedResearchQueueTests(AppTestMixin, TestCase):
+    def setUp(self):
+        self.admin = self.make_user("admin@example.com", Profile.Role.SYSTEM_ADMIN, "Sana Admin")
+        self.intern = self.make_user("intern@example.com", Profile.Role.INTERN, "Isha Intern")
+        self.other_intern = self.make_user("other@example.com", Profile.Role.INTERN, "Omar Intern")
+        self.inside_sales = self.make_user(
+            "inside@example.com",
+            Profile.Role.INSIDE_SALES,
+            "Ivan Inside Sales",
+        )
+        self.prospect = Prospect.objects.create(
+            owner=None,
+            workstream=Prospect.Workstream.INTERN,
+            stage=Prospect.Stage.RESEARCH,
+            company_name="Imported Advisory",
+            website="https://imported-advisory.example.com",
+            location="Miami, FL",
+            import_source="Florida and Chicago target firms",
+            import_key="imported-advisory.example.com",
+            created_by=self.admin,
+        )
+
+    def test_research_record_allows_missing_contact_and_qualification_data(self):
+        self.prospect.full_clean()
+
+    def test_frontline_user_sees_only_the_unassigned_queue_for_their_role(self):
+        self.client.force_login(self.intern)
+        response = self.client.get(reverse("dashboard"))
+        self.assertContains(response, self.prospect.company_name)
+        self.assertContains(response, "Research required")
+
+        self.client.force_login(self.inside_sales)
+        self.assertNotContains(self.client.get(reverse("dashboard")), self.prospect.company_name)
+
+    def test_claim_is_atomic_and_removes_record_from_other_users_queue(self):
+        self.client.force_login(self.intern)
+        response = self.client.post(reverse("prospect_claim", args=[self.prospect.pk]))
+        self.assertRedirects(response, self.prospect.get_absolute_url())
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.owner, self.intern)
+
+        self.client.force_login(self.other_intern)
+        self.assertEqual(
+            self.client.get(reverse("prospect_detail", args=[self.prospect.pk])).status_code,
+            404,
+        )
+
+    def test_research_must_be_completed_before_outreach(self):
+        self.prospect.owner = self.intern
+        self.prospect.save(update_fields=["owner"])
+        self.client.force_login(self.intern)
+        response = self.client.post(
+            reverse("outreach_add", args=[self.prospect.pk]),
+            {
+                "activity_type": Outreach.ActivityType.INITIAL_OUTREACH,
+                "medium": Outreach.Medium.EMAIL,
+                "outreach_date": timezone.localdate().isoformat(),
+            },
+        )
+        self.assertRedirects(response, self.prospect.get_absolute_url())
+        self.assertEqual(self.prospect.outreaches.count(), 0)
+
+    def test_completed_research_moves_record_to_eligible(self):
+        self.prospect.owner = self.intern
+        self.prospect.save(update_fields=["owner"])
+        self.client.force_login(self.intern)
+        response = self.client.post(
+            reverse("prospect_update", args=[self.prospect.pk]),
+            self.prospect_form_data(
+                company_name=self.prospect.company_name,
+                website=self.prospect.website,
+            ),
+        )
+        self.assertRedirects(response, self.prospect.get_absolute_url())
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.stage, Prospect.Stage.ELIGIBLE)
+
+
+class TargetFirmImportTests(AppTestMixin, TestCase):
+    def setUp(self):
+        self.admin = self.make_user("admin@example.com", Profile.Role.SYSTEM_ADMIN, "Sana Admin")
+
+    def test_import_is_validated_idempotent_and_populates_all_role_queues(self):
+        dry_run_output = StringIO()
+        call_command("import_target_firms", stdout=dry_run_output)
+        self.assertIn("Target-firm import DRY RUN", dry_run_output.getvalue())
+        self.assertEqual(Prospect.objects.count(), 0)
+
+        apply_output = StringIO()
+        call_command("import_target_firms", apply=True, stdout=apply_output)
+        self.assertIn("Source rows validated: 170", apply_output.getvalue())
+        self.assertEqual(Prospect.objects.count(), 340)
+        self.assertEqual(
+            Prospect.objects.filter(workstream=Prospect.Workstream.INTERN).count(),
+            80,
+        )
+        self.assertEqual(
+            Prospect.objects.filter(workstream=Prospect.Workstream.INSIDE_SALES).count(),
+            90,
+        )
+        self.assertEqual(
+            Prospect.objects.filter(workstream=Prospect.Workstream.LINKEDIN_OUTREACH).count(),
+            170,
+        )
+        self.assertEqual(Prospect.objects.filter(stage=Prospect.Stage.RESEARCH).count(), 340)
+        self.assertEqual(Prospect.objects.filter(owner__isnull=True).count(), 340)
+
+        second_output = StringIO()
+        call_command("import_target_firms", apply=True, stdout=second_output)
+        self.assertEqual(Prospect.objects.count(), 340)
+        self.assertIn("created=0", second_output.getvalue())
 
 
 class OutreachWorkflowTests(AppTestMixin, TestCase):
