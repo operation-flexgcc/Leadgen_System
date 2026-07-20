@@ -1,0 +1,25 @@
+[Unit]
+Description=FlexGCC Outreach Gunicorn service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=flexgcc
+Group=www-data
+WorkingDirectory=/opt/flexgcc-outreach
+EnvironmentFile=/etc/flexgcc-outreach.env
+ExecStart=/opt/flexgcc-outreach/venv/bin/gunicorn config.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 120 --access-logfile - --error-logfile -
+ExecReload=/bin/kill -s HUP $MAINPID
+KillSignal=SIGQUIT
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=full
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

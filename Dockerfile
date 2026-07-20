@@ -8,8 +8,8 @@ RUN groupadd --system app && useradd --system --gid app --create-home app
 
 WORKDIR /app
 
-COPY requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY requirements.txt requirements.lock.txt /app/
+RUN pip install --no-cache-dir -r /app/requirements.lock.txt
 
 COPY . /app
 RUN DJANGO_DEBUG=False \

@@ -121,6 +121,27 @@ jobs:
           echo "New deployed commit:"
           git log -1 --oneline
 
+          echo "Loading production environment..."
+
+          set -a
+          # The file is maintained on EC2 and is deliberately not committed.
+          # shellcheck disable=SC1090
+          source "${ENV_FILE}"
+          set +a
+
+          case "${DATABASE_URL:-}" in
+            postgresql://*|postgres://*) ;;
+            *)
+              echo "ERROR: DATABASE_URL is missing or is not PostgreSQL."
+              exit 1
+              ;;
+          esac
+
+          debug_value="$(printf '%s' "${DJANGO_DEBUG:-}" | tr '[:upper:]' '[:lower:]')"
+          if [[ "${debug_value}" != "false" && "${debug_value}" != "0" && "${debug_value}" != "no" && "${debug_value}" != "off" ]]; then
+            echo "WARNING: DJANGO_DEBUG must be False on the production server."
+          fi
+
           echo "Upgrading pip..."
 
           "${VENV_DIR}/bin/python" -m pip install \
@@ -132,7 +153,7 @@ jobs:
           echo "Installing Python dependencies..."
 
           "${VENV_DIR}/bin/pip" install \
-            -r "${REPO_DIR}/requirements.txt"
+            -r "${REPO_DIR}/requirements.lock.txt"
 
           echo "Running Django system check..."
 
@@ -140,7 +161,18 @@ jobs:
             "${REPO_DIR}/manage.py" \
             check
 
+          "${VENV_DIR}/bin/python" \
+            "${REPO_DIR}/manage.py" \
+            makemigrations \
+            --check \
+            --dry-run
+
           echo "Running database migrations..."
+
+          "${VENV_DIR}/bin/python" \
+            "${REPO_DIR}/manage.py" \
+            migrate \
+            --plan
 
           "${VENV_DIR}/bin/python" \
             "${REPO_DIR}/manage.py" \
@@ -153,6 +185,14 @@ jobs:
             "${REPO_DIR}/manage.py" \
             collectstatic \
             --noinput
+
+          echo "Running production deployment checks..."
+
+          "${VENV_DIR}/bin/python" \
+            "${REPO_DIR}/manage.py" \
+            check \
+            --deploy \
+            --fail-level ERROR
 
           echo "Setting application permissions..."
 
@@ -241,7 +281,7 @@ jobs:
             --silent \
             --show-error \
             --unix-socket "${SOCKET_PATH}" \
-            http://localhost/ \
+            http://localhost/health/ \
             >/tmp/leadgen-socket-response.html
 
           head -n 10 /tmp/leadgen-socket-response.html
@@ -257,9 +297,8 @@ jobs:
             --fail \
             --silent \
             --show-error \
-            --head \
             -H "Host: ${DOMAIN}" \
-            http://127.0.0.1/
+            http://127.0.0.1/health/
 
           echo "Testing public HTTPS website..."
 
@@ -267,8 +306,7 @@ jobs:
             --fail \
             --silent \
             --show-error \
-            --head \
-            "https://${DOMAIN}"
+            "https://${DOMAIN}/health/"
 
           echo "========================================"
           echo "LeadGen deployment completed"

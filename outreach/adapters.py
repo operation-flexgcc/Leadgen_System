@@ -1,4 +1,4 @@
-from allauth.exceptions import ImmediateHttpResponse
+from allauth.core.exceptions import ImmediateHttpResponse
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -15,7 +15,30 @@ class FlexGCCSocialAccountAdapter(DefaultSocialAccountAdapter):
             raise ImmediateHttpResponse(
                 render(request, "account/access_denied.html", {"reason": "Your Google account did not provide an email address."}, status=403)
             )
-        if settings.GOOGLE_ALLOWED_DOMAINS:
+        existing_user = get_user_model().objects.filter(email__iexact=email).first()
+        bootstrap_email = email in settings.SYSTEM_ADMIN_EMAILS or email in settings.MANAGER_EMAILS
+        if existing_user and not existing_user.is_active:
+            raise ImmediateHttpResponse(
+                render(
+                    request,
+                    "account/access_denied.html",
+                    {"reason": "Access for this account has been disabled. Contact a system administrator."},
+                    status=403,
+                )
+            )
+        if settings.REQUIRE_PREPROVISIONED_USERS and not existing_user and not bootstrap_email:
+            raise ImmediateHttpResponse(
+                render(
+                    request,
+                    "account/access_denied.html",
+                    {"reason": "A system administrator must add your name, email, and user class before your first sign-in."},
+                    status=403,
+                )
+            )
+        # Exact-email approval is more specific than the optional domain gate.
+        # Apply the domain allowlist only to accounts that were not explicitly
+        # preprovisioned or configured as bootstrap users.
+        if not existing_user and not bootstrap_email and settings.GOOGLE_ALLOWED_DOMAINS:
             domain = email.rsplit("@", 1)[-1]
             if domain not in settings.GOOGLE_ALLOWED_DOMAINS:
                 allowed = ", ".join(sorted(settings.GOOGLE_ALLOWED_DOMAINS))
@@ -27,30 +50,10 @@ class FlexGCCSocialAccountAdapter(DefaultSocialAccountAdapter):
                         status=403,
                     )
                 )
-        existing_user = get_user_model().objects.filter(email__iexact=email).first()
-        if existing_user and not existing_user.is_active:
-            raise ImmediateHttpResponse(
-                render(
-                    request,
-                    "account/access_denied.html",
-                    {"reason": "Access for this account has been disabled. Contact a system administrator."},
-                    status=403,
-                )
-            )
         if existing_user and email in settings.SYSTEM_ADMIN_EMAILS:
             Profile.objects.update_or_create(user=existing_user, defaults={"role": Profile.Role.SYSTEM_ADMIN})
         elif existing_user and email in settings.MANAGER_EMAILS:
             Profile.objects.update_or_create(user=existing_user, defaults={"role": Profile.Role.MANAGER})
-        bootstrap_email = email in settings.SYSTEM_ADMIN_EMAILS or email in settings.MANAGER_EMAILS
-        if settings.REQUIRE_PREPROVISIONED_USERS and not existing_user and not bootstrap_email:
-            raise ImmediateHttpResponse(
-                render(
-                    request,
-                    "account/access_denied.html",
-                    {"reason": "A system administrator must add your name, email, and user class before your first sign-in."},
-                    status=403,
-                )
-            )
 
     def save_user(self, request, sociallogin, form=None):
         user = super().save_user(request, sociallogin, form)

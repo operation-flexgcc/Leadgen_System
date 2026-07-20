@@ -29,10 +29,10 @@ For higher availability later, move the same image and environment contract to E
    sudo install -m 0755 deploy/aws/deploy.sh /opt/flexgcc-outreach/deploy.sh
    ```
 
-7. Copy `deploy/aws/flexgcc-outreach.env.example` to `/etc/flexgcc-outreach.env`, fill every value, then restrict it:
+7. Copy the canonical `.env.production.example` to `/etc/flexgcc-outreach.env`, fill every value, then restrict it:
 
    ```bash
-   sudo install -m 0600 deploy/aws/flexgcc-outreach.env.example /etc/flexgcc-outreach.env
+   sudo install -m 0600 .env.production.example /etc/flexgcc-outreach.env
    sudoedit /etc/flexgcc-outreach.env
    ```
 

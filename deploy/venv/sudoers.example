@@ -1,0 +1,1 @@
+flexgcc ALL=(root) NOPASSWD: /usr/bin/systemctl restart flexgcc-outreach, /usr/bin/systemctl is-active --quiet flexgcc-outreach, /usr/bin/journalctl --unit flexgcc-outreach --lines 100 --no-pager

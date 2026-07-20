@@ -18,6 +18,16 @@ from .models import Outreach, Profile, Prospect
 from .permissions import is_manager, is_system_admin
 
 
+REQUIRED_HEALTH_TABLES = {
+    "auth_user",
+    "django_migrations",
+    "django_session",
+    "django_site",
+    "outreach_prospect",
+    "socialaccount_socialaccount",
+}
+
+
 def login_landing(request):
     if request.user.is_authenticated:
         return redirect("dashboard")
@@ -29,6 +39,9 @@ def health(request):
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
             cursor.fetchone()
+        available_tables = set(connection.introspection.table_names())
+        if not REQUIRED_HEALTH_TABLES.issubset(available_tables):
+            raise RuntimeError("Required database tables are unavailable.")
         return JsonResponse({"status": "ok"})
     except Exception:
         return JsonResponse({"status": "unavailable"}, status=503)

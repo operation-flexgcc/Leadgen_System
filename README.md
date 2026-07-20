@@ -78,6 +78,8 @@ docker build -t flexgcc-outreach:local .
 
 Production must use `DJANGO_DEBUG=False` and HTTPS. Never commit `.env` or OAuth/database credentials.
 
+The current native EC2 deployment for `leadgen.flexgcc.com` is documented in [`deploy/venv/README.md`](deploy/venv/README.md). The production workflow must load `.env` before it runs any `manage.py` command; otherwise migrations can silently target Django's local SQLite fallback instead of PostgreSQL.
+
 ## User operations
 
 - A system admin adds a name, exact Google email, and user class at `/system/users/`.
@@ -91,3 +93,5 @@ Production must use `DJANGO_DEBUG=False` and HTTPS. Never commit `.env` or OAuth
 The application uses Django 5.2 LTS, PostgreSQL, server-rendered responsive templates, django-allauth for Google OAuth, Gunicorn, and WhiteNoise. Prospect history is normalized into related outreach records; user classes live in an extensible profile model rather than being hard-coded into page logic.
 
 See [`deploy/aws/README.md`](deploy/aws/README.md) for the exact AWS architecture, one-time setup, GitHub variables, deployment behavior, rollback, and first-deployment verification.
+
+For a server running Django directly in an activated Python virtualenv, use the complete [production environment template](.env.production.example), root [`deploy.sh`](deploy.sh), and [`deploy/venv/README.md`](deploy/venv/README.md). This path installs dependencies, applies migrations, collects static files, restarts Gunicorn through systemd, and verifies application health.

@@ -1,13 +1,15 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 from allauth.account.models import EmailAddress
-from allauth.socialaccount.models import SocialAccount
+from allauth.socialaccount.models import SocialAccount, SocialLogin
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from outreach.adapters import FlexGCCSocialAccountAdapter
 from outreach.forms import ProspectForm
 from outreach.models import Outreach, Profile, Prospect
 
@@ -248,8 +250,45 @@ class SystemAdminTests(AppTestMixin, TestCase):
         self.assertTrue(get_user_model().objects.filter(pk=self.admin.pk).exists())
 
 
+class GoogleAccessTests(AppTestMixin, TestCase):
+    @override_settings(
+        GOOGLE_ALLOWED_DOMAINS={"incorrect-app-host.example"},
+        REQUIRE_PREPROVISIONED_USERS=True,
+        SYSTEM_ADMIN_EMAILS=set(),
+        MANAGER_EMAILS=set(),
+    )
+    def test_exactly_preprovisioned_user_is_not_blocked_by_domain_filter(self):
+        self.make_user("intern@flexgcc.com")
+        sociallogin = SocialLogin(
+            user=get_user_model()(email="intern@flexgcc.com"),
+            account=SocialAccount(provider="google", extra_data={"email": "intern@flexgcc.com"}),
+        )
+
+        FlexGCCSocialAccountAdapter().pre_social_login(RequestFactory().get("/"), sociallogin)
+
+    @override_settings(
+        GOOGLE_ALLOWED_DOMAINS={"incorrect-app-host.example"},
+        REQUIRE_PREPROVISIONED_USERS=True,
+        SYSTEM_ADMIN_EMAILS={"founder@flexgcc.com"},
+        MANAGER_EMAILS=set(),
+    )
+    def test_bootstrap_admin_is_not_blocked_by_domain_filter(self):
+        sociallogin = SocialLogin(
+            user=get_user_model()(email="founder@flexgcc.com"),
+            account=SocialAccount(provider="google", extra_data={"email": "founder@flexgcc.com"}),
+        )
+
+        FlexGCCSocialAccountAdapter().pre_social_login(RequestFactory().get("/"), sociallogin)
+
+
 class HealthCheckTests(TestCase):
     def test_health_checks_database(self):
         response = self.client.get(reverse("health"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok"})
+
+    @patch("outreach.views.connection.introspection.table_names", return_value=["django_migrations"])
+    def test_health_rejects_database_without_required_tables(self, _table_names):
+        response = self.client.get(reverse("health"))
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), {"status": "unavailable"})

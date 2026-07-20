@@ -24,11 +24,13 @@ jobs:
           python-version: "3.13"
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.lock.txt
       - name: Check migrations
         run: python manage.py makemigrations --check --dry-run
       - name: Run application checks
         run: python manage.py check
+      - name: Check deployment scripts
+        run: bash -n deploy.sh deploy/aws/deploy.sh
       - name: Run tests
         run: python manage.py test
       - name: Check production security settings
