@@ -1,0 +1,284 @@
+name: Deploy LeadGen to AWS EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leadgen-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy leadgen.flexgcc.com
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "${{ secrets.EC2_SSH }}" \
+            | tr -d '\r' \
+            > ~/.ssh/ec2_key
+
+          chmod 600 ~/.ssh/ec2_key
+
+          ssh-keyscan -H "${{ secrets.EC2_IP }}" \
+            >> ~/.ssh/known_hosts
+
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Test EC2 connection
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            ubuntu@"${{ secrets.EC2_IP }}" \
+            "echo 'Connected to LeadGen EC2 successfully'"
+
+      - name: Deploy Django application
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o BatchMode=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            ubuntu@"${{ secrets.EC2_IP }}" \
+            'bash -s' <<'DEPLOY'
+          set -euo pipefail
+
+          APP_DIR="/var/www/leadgen"
+          REPO_DIR="${APP_DIR}/repo"
+          VENV_DIR="${APP_DIR}/venv"
+          ENV_FILE="${REPO_DIR}/.env"
+          SERVICE_NAME="leadgen"
+          DOMAIN="leadgen.flexgcc.com"
+          SOCKET_PATH="/run/leadgen/leadgen.sock"
+
+          echo "========================================"
+          echo "Starting LeadGen deployment"
+          echo "========================================"
+
+          if [ ! -d "${REPO_DIR}/.git" ]; then
+            echo "ERROR: Git repository not found:"
+            echo "${REPO_DIR}"
+            exit 1
+          fi
+
+          if [ ! -f "${ENV_FILE}" ]; then
+            echo "ERROR: Environment file not found:"
+            echo "${ENV_FILE}"
+            exit 1
+          fi
+
+          if [ ! -x "${VENV_DIR}/bin/python" ]; then
+            echo "ERROR: Python virtual environment not found:"
+            echo "${VENV_DIR}"
+            exit 1
+          fi
+
+          echo "Fixing repository ownership..."
+
+          sudo chown -R ubuntu:ubuntu "${REPO_DIR}"
+          sudo chown -R ubuntu:ubuntu "${VENV_DIR}"
+
+          cd "${REPO_DIR}"
+
+          echo "Current deployed commit:"
+          git log -1 --oneline || true
+
+          echo "Fetching latest main branch..."
+
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+
+          echo "Removing untracked files while preserving .env..."
+
+          git clean -fd \
+            -e .env \
+            -e media \
+            -e staticfiles
+
+          echo "New deployed commit:"
+          git log -1 --oneline
+
+          echo "Upgrading pip..."
+
+          "${VENV_DIR}/bin/python" -m pip install \
+            --upgrade \
+            pip \
+            setuptools \
+            wheel
+
+          echo "Installing Python dependencies..."
+
+          "${VENV_DIR}/bin/pip" install \
+            -r "${REPO_DIR}/requirements.txt"
+
+          echo "Running Django system check..."
+
+          "${VENV_DIR}/bin/python" \
+            "${REPO_DIR}/manage.py" \
+            check
+
+          echo "Running database migrations..."
+
+          "${VENV_DIR}/bin/python" \
+            "${REPO_DIR}/manage.py" \
+            migrate \
+            --noinput
+
+          echo "Collecting static files..."
+
+          "${VENV_DIR}/bin/python" \
+            "${REPO_DIR}/manage.py" \
+            collectstatic \
+            --noinput
+
+          echo "Setting application permissions..."
+
+          sudo chown -R ubuntu:www-data "${REPO_DIR}"
+
+          sudo chmod 640 "${ENV_FILE}"
+
+          if [ -d "${REPO_DIR}/staticfiles" ]; then
+            sudo find "${REPO_DIR}/staticfiles" \
+              -type d \
+              -exec chmod 755 {} \;
+
+            sudo find "${REPO_DIR}/staticfiles" \
+              -type f \
+              -exec chmod 644 {} \;
+          fi
+
+          if [ -d "${REPO_DIR}/media" ]; then
+            sudo chown -R ubuntu:www-data "${REPO_DIR}/media"
+
+            sudo find "${REPO_DIR}/media" \
+              -type d \
+              -exec chmod 775 {} \;
+
+            sudo find "${REPO_DIR}/media" \
+              -type f \
+              -exec chmod 664 {} \;
+          fi
+
+          echo "Reloading systemd..."
+
+          sudo systemctl daemon-reload
+          sudo systemctl enable "${SERVICE_NAME}"
+
+          echo "Restarting Gunicorn service..."
+
+          sudo systemctl restart "${SERVICE_NAME}"
+
+          sleep 5
+
+          echo "Checking Gunicorn service..."
+
+          if ! sudo systemctl is-active --quiet "${SERVICE_NAME}"; then
+            echo "ERROR: LeadGen service failed to start."
+
+            sudo systemctl status \
+              "${SERVICE_NAME}" \
+              --no-pager \
+              -l || true
+
+            sudo journalctl \
+              -u "${SERVICE_NAME}" \
+              -n 150 \
+              --no-pager || true
+
+            exit 1
+          fi
+
+          sudo systemctl status \
+            "${SERVICE_NAME}" \
+            --no-pager \
+            -l
+
+          echo "Checking Gunicorn socket..."
+
+          if [ ! -S "${SOCKET_PATH}" ]; then
+            echo "ERROR: Gunicorn socket does not exist:"
+            echo "${SOCKET_PATH}"
+
+            sudo ls -la /run/leadgen || true
+
+            sudo journalctl \
+              -u "${SERVICE_NAME}" \
+              -n 150 \
+              --no-pager || true
+
+            exit 1
+          fi
+
+          sudo ls -l "${SOCKET_PATH}"
+
+          echo "Testing Django through Gunicorn socket..."
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --unix-socket "${SOCKET_PATH}" \
+            http://localhost/ \
+            >/tmp/leadgen-socket-response.html
+
+          head -n 10 /tmp/leadgen-socket-response.html
+
+          echo "Testing Nginx configuration..."
+
+          sudo nginx -t
+          sudo systemctl reload nginx
+
+          echo "Testing website locally through Nginx..."
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --head \
+            -H "Host: ${DOMAIN}" \
+            http://127.0.0.1/
+
+          echo "Testing public HTTPS website..."
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --head \
+            "https://${DOMAIN}"
+
+          echo "========================================"
+          echo "LeadGen deployment completed"
+          echo "========================================"
+          echo "Commit: $(git rev-parse --short HEAD)"
+          echo "Website: https://${DOMAIN}"
+          DEPLOY
+
+      - name: Remove SSH key
+        if: always()
+        shell: bash
+        run: |
+          rm -f ~/.ssh/ec2_key
