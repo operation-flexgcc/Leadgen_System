@@ -10,6 +10,9 @@ FlexGCC Outreach is a Google-authenticated partner-outreach tracker for sales in
 - Playbook stages from Research required and Eligible through Founder meeting booked, plus next actions, outcome status, comments, and complete meeting handoff details.
 - Statuses: Not yet responded, Not interested, Meeting to be scheduled, Meeting scheduled, and Meeting done.
 - Dashboard with 20 prospects per page and manager filters for user class, assigned operator, playbook stage, outcome status, outreach count, today's actions, and overdue/upcoming actions.
+- Immutable system-generated company UUIDs shared across that company's workstream records.
+- Role-scoped company downloads in CSV and formatted XLSX with `ID`, `Name`, `Location`, and `URL` columns.
+- Rotating API credentials, audited company-detail updates, and atomic prospect claiming by company ID.
 - Google OAuth login with exact-email pre-provisioning and optional Google-domain restriction.
 - Five extensible user classes:
 
@@ -39,6 +42,55 @@ python manage.py import_target_firms --apply --created-by-email admin@flexgcc.co
 ```
 
 Frontline users see unassigned prospects only in their own user class. They claim a prospect, complete company/contact research, and save it as Eligible before the app permits outreach. Managers can assign unassigned prospects directly from the edit screen. The manual **Import target firms** GitHub workflow runs the same command against production.
+
+The migration assigns one company UUID to all existing records with the same normalized website domain. The ID remains stable even when company details are later updated.
+
+## Company API
+
+Every logged-in user can open **API access** and generate:
+
+- a short-lived bearer access token;
+- a single-use refresh token that is stored only as a SHA-256 hash and rotates whenever it is used.
+
+Send the access token as `Authorization: Bearer <access_token>`. Refresh a token pair with:
+
+```http
+POST /api/v1/token/refresh/
+Content-Type: application/json
+
+{"refresh_token":"<refresh_token>"}
+```
+
+Update company details by immutable company ID:
+
+```http
+PATCH /api/v1/companies/<company_id>/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "short_description": "...",
+  "consulting_focus": "...",
+  "client_segment": "...",
+  "eligibility_evidence": "...",
+  "contact_name": "...",
+  "contact_title": "...",
+  "linkedin_url": "https://www.linkedin.com/in/...",
+  "email": "optional@example.com",
+  "phone": "+1 ..."
+}
+```
+
+`GET` on the same URL returns the company details. Managers and system administrators can read or update every company. Frontline users must own the prospect for their workstream. Each successful update is stored with the authenticated user, prior values, new values, and timestamp.
+
+Claim the prospect for the token user's own workstream with:
+
+```http
+POST /api/v1/companies/<company_id>/claim/
+Authorization: Bearer <access_token>
+```
+
+If another user has claimed it, the API returns HTTP `409` and the existing user's name.
 
 ## Local setup with Docker
 
@@ -95,6 +147,11 @@ docker build -t flexgcc-outreach:local .
 | `SYSTEM_ADMIN_EMAILS` | Bootstrap | Comma-separated initial system admins |
 | `MANAGER_EMAILS` | Optional | Comma-separated manager bootstrap emails |
 | `DJANGO_TIME_ZONE` | No | Defaults to `Asia/Kolkata` |
+| `API_ACCESS_TOKEN_MINUTES` | No | Access-token lifetime; defaults to `15` |
+| `API_REFRESH_TOKEN_DAYS` | No | Refresh-token lifetime; defaults to `30` |
+| `API_TOKEN_ISSUER` | No | Token issuer; defaults to `flexgcc-outreach` |
+| `API_TOKEN_AUDIENCE` | No | Token audience; defaults to `flexgcc-outreach-api` |
+| `API_TOKEN_SIGNING_KEY` | Recommended | Separate long random signing secret; falls back to `DJANGO_SECRET_KEY` |
 
 Production must use `DJANGO_DEBUG=False` and HTTPS. Never commit `.env` or OAuth/database credentials.
 

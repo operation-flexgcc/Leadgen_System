@@ -1,3 +1,6 @@
+import csv
+from io import BytesIO
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import redirect_to_login
@@ -8,7 +11,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, connection, transaction
 from django.db.models.deletion import ProtectedError
 from django.db.models import Count, F, Q
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
@@ -60,6 +63,80 @@ def scoped_prospects(user):
 
 def get_scoped_prospect(user, pk):
     return get_object_or_404(scoped_prospects(user), pk=pk)
+
+
+def scoped_company_rows(user):
+    companies = {}
+    for prospect in scoped_prospects(user).order_by("company_id", "pk"):
+        companies.setdefault(
+            prospect.company_id,
+            (
+                str(prospect.company_id),
+                prospect.company_name,
+                prospect.location,
+                prospect.website,
+            ),
+        )
+    return list(companies.values())
+
+
+@login_required
+@require_http_methods(["GET"])
+def company_export(request, file_format):
+    rows = scoped_company_rows(request.user)
+    filename = f"flexgcc-companies-{timezone.localdate():%Y%m%d}"
+    headers = ["ID", "Name", "Location", "URL"]
+
+    if file_format == "csv":
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="{filename}.csv"'
+        response["Cache-Control"] = "private, no-store"
+        response.write("\ufeff")
+        writer = csv.writer(response)
+        writer.writerow(headers)
+        writer.writerows(rows)
+        return response
+
+    if file_format == "xlsx":
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Companies"
+        worksheet.append(headers)
+        for row in rows:
+            worksheet.append(row)
+
+        header_fill = PatternFill("solid", fgColor="087A55")
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = Font(color="FFFFFF", bold=True)
+            cell.alignment = Alignment(vertical="center")
+        worksheet.row_dimensions[1].height = 24
+        worksheet.freeze_panes = "A2"
+        worksheet.auto_filter.ref = worksheet.dimensions
+        worksheet.sheet_view.showGridLines = False
+        worksheet.column_dimensions["A"].width = 39
+        worksheet.column_dimensions["B"].width = 34
+        worksheet.column_dimensions["C"].width = 28
+        worksheet.column_dimensions["D"].width = 55
+        for cell in worksheet["D"][1:]:
+            if cell.value:
+                cell.hyperlink = cell.value
+                cell.style = "Hyperlink"
+
+        output = BytesIO()
+        workbook.save(output)
+        response = HttpResponse(
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{filename}.xlsx"'
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+    return JsonResponse({"error": "Choose csv or xlsx."}, status=404)
 
 
 def sync_prospect_from_outreach(prospect, outreach):

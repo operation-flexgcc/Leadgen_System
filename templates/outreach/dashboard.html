@@ -7,7 +7,11 @@
         <h1>Good {% now "H" as current_hour %}{% if current_hour < "12" %}morning{% elif current_hour < "17" %}afternoon{% else %}evening{% endif %}, {{ user.first_name|default:"there" }}</h1>
         <p>{% if current_user_is_manager %}Compare activity across every outreach class and operator.{% else %}Prioritize follow-ups and keep every prospect moving through the approved playbook.{% endif %}</p>
     </div>
-    <a class="button" href="{% url 'prospect_create' %}">+ Add prospect</a>
+    <div class="heading-actions">
+        <a class="button-secondary" href="{% url 'company_export' 'csv' %}">Download CSV</a>
+        <a class="button-secondary" href="{% url 'company_export' 'xlsx' %}">Download XLSX</a>
+        <a class="button" href="{% url 'prospect_create' %}">+ Add prospect</a>
+    </div>
 </section>
 
 <section class="metric-grid" aria-label="Pipeline summary">
@@ -133,6 +137,7 @@
                 <tr>
                     <td>
                         <a class="company-link" href="{% url 'prospect_detail' prospect.pk %}">{{ prospect.company_name }}</a>
+                        <span class="cell-secondary company-id">ID: {{ prospect.company_id }}</span>
                         <span class="cell-secondary">{{ prospect.website|truncatechars:38 }}</span>
                     </td>
                     <td>

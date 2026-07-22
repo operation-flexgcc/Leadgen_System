@@ -6,9 +6,11 @@ cryptography==49.0.0
 dj-database-url==3.1.2
 Django==5.2.16
 django-allauth==65.18.0
+et_xmlfile==2.0.0
 gunicorn==23.0.0
 idna==3.18
 oauthlib==3.3.1
+openpyxl==3.1.5
 packaging==26.2
 psycopg==3.3.4
 psycopg-binary==3.3.4

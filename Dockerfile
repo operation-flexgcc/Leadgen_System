@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r /app/requirements.lock.txt
 
 COPY . /app
 RUN DJANGO_DEBUG=False \
-    DJANGO_SECRET_KEY=container-build-only-secret-key \
+    DJANGO_SECRET_KEY=container-build-only-long-secret-key-never-used-at-runtime \
     DJANGO_ALLOWED_HOSTS=localhost \
     python manage.py collectstatic --noinput \
     && chown -R app:app /app

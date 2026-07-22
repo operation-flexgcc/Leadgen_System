@@ -1,3 +1,6 @@
+import uuid
+from urllib.parse import urlsplit
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
@@ -18,6 +21,26 @@ class Profile(models.Model):
 
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.email or self.user.username} ({self.get_role_display()})"
+
+
+def normalized_company_key(website):
+    host = (urlsplit(website or "").hostname or "").lower().removeprefix("www.")
+    return host
+
+
+class CompanyIdentity(models.Model):
+    """Stable identity shared by every workstream record for one company."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    key = models.CharField(max_length=300, unique=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["key"]
+        verbose_name_plural = "company identities"
+
+    def __str__(self):
+        return str(self.id)
 
 
 class Prospect(models.Model):
@@ -59,6 +82,14 @@ class Prospect(models.Model):
         ACCEPTED = "accepted", "Connection accepted"
         DECLINED = "declined", "Declined or not now"
 
+    company = models.ForeignKey(
+        CompanyIdentity,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="prospects",
+        editable=False,
+        help_text="System-generated immutable company identity shared across workstreams.",
+    )
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -190,6 +221,18 @@ class Prospect(models.Model):
     def get_absolute_url(self):
         return reverse("prospect_detail", kwargs={"pk": self.pk})
 
+    def save(self, *args, **kwargs):
+        company_key = normalized_company_key(self.website)
+        if self._state.adding:
+            if not company_key:
+                raise ValidationError({"website": "Enter a valid company website before saving."})
+            self.company, _ = CompanyIdentity.objects.get_or_create(key=company_key)
+        else:
+            original = type(self).objects.only("company_id").get(pk=self.pk)
+            if self.company_id != original.company_id:
+                raise ValidationError({"company": "The system-generated company ID cannot be changed."})
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return self.company_name
 
@@ -245,3 +288,48 @@ class Outreach(models.Model):
 
     def __str__(self):
         return f"{self.prospect.company_name} outreach {self.sequence_number}"
+
+
+class ApiRefreshToken(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="api_refresh_tokens",
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"API refresh token for {self.user} created {self.created_at}"
+
+
+class CompanyUpdateAudit(models.Model):
+    class Source(models.TextChoices):
+        API = "api", "API"
+
+    company = models.ForeignKey(
+        CompanyIdentity,
+        on_delete=models.PROTECT,
+        related_name="update_audits",
+    )
+    modified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="company_update_audits",
+    )
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.API)
+    previous_values = models.JSONField(default=dict)
+    changed_values = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.company_id} updated by {self.modified_by}"

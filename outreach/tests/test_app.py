@@ -561,6 +561,9 @@ class TargetFirmImportTests(AppTestMixin, TestCase):
         )
         self.assertEqual(Prospect.objects.filter(stage=Prospect.Stage.RESEARCH).count(), 340)
         self.assertEqual(Prospect.objects.filter(owner__isnull=True).count(), 340)
+        self.assertEqual(Prospect.objects.values("company_id").distinct().count(), 170)
+        sample_domain = Prospect.objects.filter(import_key="360alignmentadvisors.com")
+        self.assertEqual(sample_domain.values("company_id").distinct().count(), 1)
 
         second_output = StringIO()
         call_command("import_target_firms", apply=True, stdout=second_output)

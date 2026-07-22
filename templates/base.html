@@ -22,6 +22,7 @@
             <nav class="primary-nav" aria-label="Primary navigation">
                 <a href="{% url 'dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}>Dashboard</a>
                 {% if current_user_is_system_admin %}<a href="{% url 'user_list' %}" {% if request.resolver_match.url_name == 'user_list' %}aria-current="page"{% endif %}>Users</a>{% endif %}
+                <a href="{% url 'api_access' %}" {% if request.resolver_match.url_name == 'api_access' %}aria-current="page"{% endif %}>API access</a>
                 <a class="button button-small" href="{% url 'prospect_create' %}">+ Add prospect</a>
             </nav>
             <div class="account-menu">
