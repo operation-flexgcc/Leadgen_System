@@ -42,6 +42,7 @@
             </div>
             <p class="description-copy">{{ prospect.short_description|default:"Company description to be researched." }}</p>
             <dl class="info-grid">
+                <div><dt>Company ID</dt><dd><code>{{ prospect.company_id }}</code></dd></div>
                 <div><dt>Location</dt><dd>{{ prospect.location|default:"Not provided" }}</dd></div>
                 <div><dt>Assigned outreach user</dt><dd>{% if prospect.owner %}{{ prospect.owner.get_full_name|default:prospect.owner.email }}{% else %}<span class="muted">Unassigned role queue</span>{% endif %}</dd></div>
                 <div><dt>Consulting focus</dt><dd>{{ prospect.consulting_focus|default:"Not provided" }}</dd></div>

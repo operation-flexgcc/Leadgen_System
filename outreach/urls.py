@@ -1,11 +1,16 @@
 from django.urls import path
 
-from . import views
+from . import api, views
 
 
 urlpatterns = [
     path("", views.home, name="home"),
     path("dashboard/", views.dashboard, name="dashboard"),
+    path("companies/export/<str:file_format>/", views.company_export, name="company_export"),
+    path("api-access/", api.api_access, name="api_access"),
+    path("api/v1/token/refresh/", api.token_refresh, name="api_token_refresh"),
+    path("api/v1/companies/<uuid:company_id>/", api.company_detail, name="api_company_detail"),
+    path("api/v1/companies/<uuid:company_id>/claim/", api.company_claim, name="api_company_claim"),
     path("prospects/new/", views.prospect_create, name="prospect_create"),
     path("prospects/<int:pk>/", views.prospect_detail, name="prospect_detail"),
     path("prospects/<int:pk>/edit/", views.prospect_update, name="prospect_update"),
