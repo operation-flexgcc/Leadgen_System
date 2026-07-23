@@ -309,6 +309,27 @@ class ApiRefreshToken(models.Model):
         return f"API refresh token for {self.user} created {self.created_at}"
 
 
+class ApiAccessToken(models.Model):
+    """Persistent API credential whose raw value is shown only when issued."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="api_access_tokens",
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    token_prefix = models.CharField(max_length=16)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"API access token {self.token_prefix} for {self.user}"
+
+
 class CompanyUpdateAudit(models.Model):
     class Source(models.TextChoices):
         API = "api", "API"

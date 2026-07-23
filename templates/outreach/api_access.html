@@ -4,35 +4,75 @@
 <section class="page-heading">
     <p class="eyebrow">Authenticated integration</p>
     <h1>API access</h1>
-    <p>Generate a short-lived access token and a rotating refresh token for your own FlexGCC account.</p>
+    <p>Generate an access token that remains active until you revoke it.</p>
 </section>
 
 {% if token_pair %}
 <section class="token-warning" aria-live="polite">
-    <strong>Copy these credentials now.</strong>
-    <span>The refresh token is stored only as a secure hash and cannot be shown again. Generating credentials does not expose your Google password.</span>
+    <strong>Copy this token now.</strong>
+    <span>Only its secure hash is stored, so the full token cannot be shown again. Keep it private.</span>
 </section>
 <section class="panel api-token-panel">
-    <div class="panel-header"><div><h2>New token pair</h2><p>Access token expires in {{ token_pair.expires_in }} seconds</p></div></div>
+    <div class="panel-header">
+        <div><h2>New access token</h2><p>No automatic expiry</p></div>
+    </div>
     <div class="api-token-grid">
-        <label>Access token<textarea readonly rows="6">{{ token_pair.access_token }}</textarea></label>
-        <label>Refresh token<textarea readonly rows="4">{{ token_pair.refresh_token }}</textarea></label>
+        <label>Access token<textarea readonly rows="5">{{ token_pair.access_token }}</textarea></label>
     </div>
 </section>
 {% endif %}
 
+<section class="panel api-token-panel">
+    <div class="panel-header">
+        <div>
+            <h2>Active tokens</h2>
+            <p>Tokens inherit your current role and stop working immediately when revoked.</p>
+        </div>
+        <form method="post">{% csrf_token %}<button class="button" type="submit">Generate access token</button></form>
+    </div>
+    {% if active_tokens %}
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Token</th><th>Created</th><th>Last used</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <tbody>
+                {% for token in active_tokens %}
+                <tr>
+                    <td><code>{{ token.token_prefix }}…</code><span class="cell-secondary">Does not expire automatically</span></td>
+                    <td>{{ token.created_at|date:"j M Y, g:i A" }}</td>
+                    <td>{% if token.last_used_at %}{{ token.last_used_at|date:"j M Y, g:i A" }}{% else %}<span class="muted">Not used yet</span>{% endif %}</td>
+                    <td>
+                        <div class="row-actions">
+                            <form method="post" action="{% url 'api_access_token_revoke' token.pk %}">
+                                {% csrf_token %}
+                                <button class="danger-link" type="submit">Revoke</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-inline">You have no active API tokens.</div>
+    {% endif %}
+</section>
+
 <section class="panel api-docs-panel">
     <div class="panel-header">
-        <div><h2>Credentials</h2><p>Tokens inherit the permissions and role of the logged-in user.</p></div>
-        <form method="post">{% csrf_token %}<button class="button" type="submit">Generate token pair</button></form>
+        <div><h2>API instructions</h2><p>Use the same token until you choose to revoke it.</p></div>
     </div>
     <div class="api-docs-copy">
         <h3>Authentication</h3>
-        <p>Send the access token in <code>Authorization: Bearer &lt;access_token&gt;</code>. Refresh tokens are single-use and rotate at:</p>
+        <p>Send the token in every request. New tokens do not need refresh tokens.</p>
+        <pre>Authorization: Bearer &lt;access_token&gt;</pre>
+
+        <h3>Existing refresh tokens</h3>
+        <p>If you still have a refresh token generated under the old system, exchange it once for a persistent access token:</p>
         <pre>POST /api/v1/token/refresh/
 Content-Type: application/json
 
-{"refresh_token":"&lt;refresh_token&gt;"}</pre>
+{"refresh_token":"&lt;old_refresh_token&gt;"}</pre>
 
         <h3>Update company details</h3>
         <p>Managers can update any company. Outreach users must first claim the matching prospect in their user class.</p>

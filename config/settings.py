@@ -153,13 +153,9 @@ SYSTEM_ADMIN_EMAILS = {email.lower() for email in env_list("SYSTEM_ADMIN_EMAILS"
 GOOGLE_ALLOWED_DOMAINS = {domain.lower().lstrip("@") for domain in env_list("GOOGLE_ALLOWED_DOMAINS")}
 REQUIRE_PREPROVISIONED_USERS = env_bool("REQUIRE_PREPROVISIONED_USERS", True)
 
-API_ACCESS_TOKEN_MINUTES = int(os.getenv("API_ACCESS_TOKEN_MINUTES", "15"))
-API_REFRESH_TOKEN_DAYS = int(os.getenv("API_REFRESH_TOKEN_DAYS", "30"))
 API_TOKEN_ISSUER = os.getenv("API_TOKEN_ISSUER", "flexgcc-outreach")
 API_TOKEN_AUDIENCE = os.getenv("API_TOKEN_AUDIENCE", "flexgcc-outreach-api")
 API_TOKEN_SIGNING_KEY = os.getenv("API_TOKEN_SIGNING_KEY") or SECRET_KEY
-if API_ACCESS_TOKEN_MINUTES <= 0 or API_REFRESH_TOKEN_DAYS <= 0:
-    raise ImproperlyConfigured("API token lifetimes must be positive integers.")
 if not DEBUG and len(API_TOKEN_SIGNING_KEY) < 32:
     raise ImproperlyConfigured("API_TOKEN_SIGNING_KEY must contain at least 32 characters.")
 

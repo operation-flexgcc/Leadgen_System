@@ -8,6 +8,11 @@ urlpatterns = [
     path("dashboard/", views.dashboard, name="dashboard"),
     path("companies/export/<str:file_format>/", views.company_export, name="company_export"),
     path("api-access/", api.api_access, name="api_access"),
+    path(
+        "api-access/tokens/<int:pk>/revoke/",
+        api.revoke_access_token,
+        name="api_access_token_revoke",
+    ),
     path("api/v1/token/refresh/", api.token_refresh, name="api_token_refresh"),
     path("api/v1/companies/<uuid:company_id>/", api.company_detail, name="api_company_detail"),
     path("api/v1/companies/<uuid:company_id>/claim/", api.company_claim, name="api_company_claim"),
