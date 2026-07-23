@@ -49,10 +49,10 @@ The migration assigns one company UUID to all existing records with the same nor
 
 Every logged-in user can open **API access** and generate:
 
-- a short-lived bearer access token;
-- a single-use refresh token that is stored only as a SHA-256 hash and rotates whenever it is used.
+- a persistent bearer access token that remains active until the user revokes it;
+- a credential whose raw value is shown once and whose SHA-256 hash is the only value stored by the application.
 
-Send the access token as `Authorization: Bearer <access_token>`. Refresh a token pair with:
+Send the access token as `Authorization: Bearer <access_token>`. No refresh is required for new tokens. For migration compatibility only, exchange a still-valid refresh token from the previous system once with:
 
 ```http
 POST /api/v1/token/refresh/
@@ -147,13 +147,13 @@ docker build -t flexgcc-outreach:local .
 | `SYSTEM_ADMIN_EMAILS` | Bootstrap | Comma-separated initial system admins |
 | `MANAGER_EMAILS` | Optional | Comma-separated manager bootstrap emails |
 | `DJANGO_TIME_ZONE` | No | Defaults to `Asia/Kolkata` |
-| `API_ACCESS_TOKEN_MINUTES` | No | Access-token lifetime; defaults to `15` |
-| `API_REFRESH_TOKEN_DAYS` | No | Refresh-token lifetime; defaults to `30` |
-| `API_TOKEN_ISSUER` | No | Token issuer; defaults to `flexgcc-outreach` |
-| `API_TOKEN_AUDIENCE` | No | Token audience; defaults to `flexgcc-outreach-api` |
-| `API_TOKEN_SIGNING_KEY` | Recommended | Separate long random signing secret; falls back to `DJANGO_SECRET_KEY` |
+| `API_TOKEN_ISSUER` | No | Issuer used to validate access JWTs created by the previous token system |
+| `API_TOKEN_AUDIENCE` | No | Audience used to validate access JWTs created by the previous token system |
+| `API_TOKEN_SIGNING_KEY` | Recommended | Signing secret retained while previous access JWTs remain in circulation |
 
 Production must use `DJANGO_DEBUG=False` and HTTPS. Never commit `.env` or OAuth/database credentials.
+
+New API access tokens are persistent opaque credentials: they do not expire on a timer. The raw token is shown only once, only its SHA-256 hash is stored, and the user can revoke it immediately from `/api-access/`. Existing short-lived JWTs retain their original expiry; an unexpired old refresh token can be exchanged once for a persistent token at `/api/v1/token/refresh/`.
 
 The current native EC2 deployment for `leadgen.flexgcc.com` is documented in [`deploy/venv/README.md`](deploy/venv/README.md). The production workflow must load `.env` before it runs any `manage.py` command; otherwise migrations can silently target Django's local SQLite fallback instead of PostgreSQL.
 

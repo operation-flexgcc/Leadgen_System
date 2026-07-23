@@ -1,12 +1,14 @@
 import json
 from functools import wraps
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.validators import EmailValidator, URLValidator
 from django.db import transaction
 from django.http import JsonResponse
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_POST
@@ -17,7 +19,7 @@ from .api_tokens import (
     issue_token_pair,
     rotate_refresh_token,
 )
-from .models import CompanyIdentity, CompanyUpdateAudit, Profile, Prospect
+from .models import ApiAccessToken, CompanyIdentity, CompanyUpdateAudit, Profile, Prospect
 from .permissions import is_manager
 
 
@@ -144,11 +146,29 @@ def api_access(request):
         "outreach/api_access.html",
         {
             "token_pair": token_pair,
+            "active_tokens": request.user.api_access_tokens.filter(
+                revoked_at__isnull=True
+            ),
             "company_fields": API_COMPANY_FIELDS.keys(),
         },
     )
     response["Cache-Control"] = "no-store"
     return response
+
+
+@login_required
+@require_POST
+def revoke_access_token(request, pk):
+    token = get_object_or_404(
+        ApiAccessToken,
+        pk=pk,
+        user=request.user,
+        revoked_at__isnull=True,
+    )
+    token.revoked_at = timezone.now()
+    token.save(update_fields=["revoked_at"])
+    messages.success(request, f"API token {token.token_prefix}… was revoked.")
+    return redirect("api_access")
 
 
 @csrf_exempt

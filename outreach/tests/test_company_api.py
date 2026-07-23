@@ -1,16 +1,32 @@
 import csv
+import hashlib
 import json
 import uuid
+from datetime import timedelta
 from io import BytesIO, StringIO
 
+import jwt
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from openpyxl import load_workbook
 
-from outreach.api_tokens import issue_token_pair
-from outreach.models import ApiRefreshToken, CompanyUpdateAudit, Profile, Prospect
+from outreach.api_tokens import (
+    API_ACCESS_TOKEN_PREFIX,
+    ApiTokenError,
+    authenticate_access_token,
+    issue_token_pair,
+)
+from outreach.models import (
+    ApiAccessToken,
+    ApiRefreshToken,
+    CompanyUpdateAudit,
+    Profile,
+    Prospect,
+)
 
 
 class CompanyApiTestMixin:
@@ -122,32 +138,137 @@ class TokenLifecycleTests(CompanyApiTestMixin, TestCase):
     def setUp(self):
         self.user = self.make_user("intern@example.com", name="Isha Intern")
 
-    def test_logged_in_user_can_generate_access_and_refresh_tokens(self):
+    def test_logged_in_user_generates_persistent_hashed_access_token(self):
         self.client.force_login(self.user)
         response = self.client.post(reverse("api_access"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.context["token_pair"]["access_token"])
-        self.assertTrue(response.context["token_pair"]["refresh_token"])
-        stored = ApiRefreshToken.objects.get(user=self.user)
-        self.assertNotEqual(stored.token_hash, response.context["token_pair"]["refresh_token"])
+        token_data = response.context["token_pair"]
+        raw_token = token_data["access_token"]
+        self.assertTrue(raw_token.startswith(API_ACCESS_TOKEN_PREFIX))
+        self.assertIsNone(token_data["expires_in"])
+        self.assertNotIn("refresh_token", token_data)
 
-    def test_refresh_token_rotates_once_and_cannot_be_reused(self):
-        pair = issue_token_pair(self.user)
+        stored = ApiAccessToken.objects.get(user=self.user)
+        self.assertNotEqual(stored.token_hash, raw_token)
+        self.assertEqual(
+            stored.token_hash,
+            hashlib.sha256(raw_token.encode("utf-8")).hexdigest(),
+        )
+        self.assertEqual(stored.token_prefix, raw_token[:16])
+        self.assertContains(response, "No automatic expiry")
+
+    def test_persistent_token_does_not_expire_based_on_age(self):
+        raw_token = issue_token_pair(self.user)["access_token"]
+        token = ApiAccessToken.objects.get(user=self.user)
+        ApiAccessToken.objects.filter(pk=token.pk).update(
+            created_at=timezone.now() - timedelta(days=3650)
+        )
+
+        authenticated_user = authenticate_access_token(raw_token)
+
+        self.assertEqual(authenticated_user, self.user)
+        token.refresh_from_db()
+        self.assertIsNotNone(token.last_used_at)
+
+    def test_user_can_revoke_own_token_and_it_stops_working_immediately(self):
+        prospect = self.make_prospect(
+            self.user,
+            "Persistent Token Advisory",
+            "https://persistent-token.example.com",
+        )
+        raw_token = issue_token_pair(self.user)["access_token"]
+        token = ApiAccessToken.objects.get(user=self.user)
+        company_url = reverse("api_company_detail", args=[prospect.company_id])
+        self.assertEqual(
+            self.client.get(
+                company_url,
+                HTTP_AUTHORIZATION=f"Bearer {raw_token}",
+            ).status_code,
+            200,
+        )
+
+        self.client.force_login(self.user)
+        revoke_response = self.client.post(
+            reverse("api_access_token_revoke", args=[token.pk])
+        )
+
+        self.assertRedirects(revoke_response, reverse("api_access"))
+        token.refresh_from_db()
+        self.assertIsNotNone(token.revoked_at)
+        rejected = self.client.get(
+            company_url,
+            HTTP_AUTHORIZATION=f"Bearer {raw_token}",
+        )
+        self.assertEqual(rejected.status_code, 401)
+        self.assertIn("revoked", rejected.json()["error"])
+
+    def test_user_cannot_revoke_another_users_token(self):
+        other_user = self.make_user("other@example.com", name="Omar Intern")
+        issue_token_pair(other_user)
+        other_token = ApiAccessToken.objects.get(user=other_user)
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("api_access_token_revoke", args=[other_token.pk])
+        )
+
+        self.assertEqual(response.status_code, 404)
+        other_token.refresh_from_db()
+        self.assertIsNone(other_token.revoked_at)
+
+    def test_token_is_rejected_when_its_user_is_inactive(self):
+        raw_token = issue_token_pair(self.user)["access_token"]
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+
+        with self.assertRaisesMessage(ApiTokenError, "unavailable or inactive"):
+            authenticate_access_token(raw_token)
+
+    def test_old_refresh_token_is_exchanged_once_for_persistent_token(self):
+        raw_refresh_token = "old-refresh-token-value"
+        ApiRefreshToken.objects.create(
+            user=self.user,
+            token_hash=hashlib.sha256(raw_refresh_token.encode("utf-8")).hexdigest(),
+            expires_at=timezone.now() + timedelta(days=1),
+        )
         response = self.client.post(
             reverse("api_token_refresh"),
-            data=json.dumps({"refresh_token": pair["refresh_token"]}),
+            data=json.dumps({"refresh_token": raw_refresh_token}),
             content_type="application/json",
         )
+
         self.assertEqual(response.status_code, 200)
-        self.assertNotEqual(response.json()["refresh_token"], pair["refresh_token"])
+        self.assertTrue(response.json()["access_token"].startswith(API_ACCESS_TOKEN_PREFIX))
+        self.assertIsNone(response.json()["expires_in"])
+        self.assertNotIn("refresh_token", response.json())
+        self.assertEqual(ApiAccessToken.objects.filter(user=self.user).count(), 1)
 
         reused = self.client.post(
             reverse("api_token_refresh"),
-            data=json.dumps({"refresh_token": pair["refresh_token"]}),
+            data=json.dumps({"refresh_token": raw_refresh_token}),
             content_type="application/json",
         )
         self.assertEqual(reused.status_code, 401)
+
+    def test_unexpired_legacy_jwt_remains_compatible(self):
+        now = timezone.now()
+        legacy_token = jwt.encode(
+            {
+                "iss": settings.API_TOKEN_ISSUER,
+                "aud": settings.API_TOKEN_AUDIENCE,
+                "sub": str(self.user.pk),
+                "email": self.user.email,
+                "type": "access",
+                "jti": uuid.uuid4().hex,
+                "iat": int(now.timestamp()),
+                "exp": int((now + timedelta(minutes=15)).timestamp()),
+            },
+            settings.API_TOKEN_SIGNING_KEY,
+            algorithm="HS256",
+        )
+
+        self.assertEqual(authenticate_access_token(legacy_token), self.user)
 
 
 class CompanyApiTests(CompanyApiTestMixin, TestCase):
