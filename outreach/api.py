@@ -292,10 +292,11 @@ def company_claim(request, company_id):
         return _json_error("Managers and system administrators cannot claim prospects.", 403)
 
     with transaction.atomic():
+        # Keep the nullable owner out of this locking query. PostgreSQL rejects
+        # FOR UPDATE when it applies to the nullable side of an outer join.
         prospects = list(
             Prospect.objects.select_for_update()
             .filter(company_id=company_id, workstream=role)
-            .select_related("owner")
             .order_by("pk")
         )
         if not prospects:

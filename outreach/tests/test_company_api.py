@@ -9,7 +9,9 @@ import jwt
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from openpyxl import load_workbook
@@ -389,3 +391,32 @@ class CompanyApiTests(CompanyApiTestMixin, TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["claimed_by"], "Isha Intern")
         self.assertIn("already claimed by Isha Intern", response.json()["error"])
+
+    def test_claim_row_lock_does_not_join_nullable_owner(self):
+        unassigned = Prospect.objects.create(
+            owner=None,
+            workstream=Prospect.Workstream.INTERN,
+            stage=Prospect.Stage.RESEARCH,
+            company_name="ORENG Consulting",
+            website="http://www.orengconsulting.com",
+            location="Boston, MA",
+            created_by=self.manager,
+        )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post(
+                reverse("api_company_claim", args=[unassigned.company_id]),
+                HTTP_AUTHORIZATION=self.bearer(self.other_intern),
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        claim_selects = [
+            query["sql"]
+            for query in queries.captured_queries
+            if 'FROM "outreach_prospect"' in query["sql"]
+            and '"outreach_prospect"."company_id"' in query["sql"]
+            and query["sql"].lstrip().upper().startswith("SELECT")
+        ]
+        self.assertTrue(claim_selects)
+        for claim_select in claim_selects:
+            self.assertNotIn('JOIN "auth_user"', claim_select)
