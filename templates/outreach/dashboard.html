@@ -96,6 +96,10 @@
             <label for="{{ filter_form.stage.id_for_label }}">Playbook stage</label>
             {{ filter_form.stage }}
         </div>
+        <div>
+            <label for="{{ filter_form.claim_status.id_for_label }}">Claim status</label>
+            {{ filter_form.claim_status }}
+        </div>
         {% if current_user_is_manager %}
         <div>
             <label for="{{ filter_form.workstream.id_for_label }}">User class</label>
