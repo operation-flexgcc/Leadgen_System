@@ -340,6 +340,11 @@ class DashboardFilterForm(forms.Form):
         ("upcoming", "Upcoming actions"),
         ("none", "No action date"),
     ]
+    CLAIM_STATUS_CHOICES = [
+        ("", "All claim statuses"),
+        ("claimed", "Claimed prospects"),
+        ("unclaimed", "Unclaimed prospects"),
+    ]
     OUTREACH_CHOICES = [("", "Any outreach count")] + [(str(value), str(value)) for value in range(6)]
 
     search = forms.CharField(required=False, label="Search", widget=forms.TextInput(attrs={"placeholder": "Company or contact"}))
@@ -352,6 +357,11 @@ class DashboardFilterForm(forms.Form):
         required=False,
         choices=[("", "All playbook stages")] + list(Prospect.Stage.choices),
         label="Playbook stage",
+    )
+    claim_status = forms.ChoiceField(
+        required=False,
+        choices=CLAIM_STATUS_CHOICES,
+        label="Claim status",
     )
     workstream = forms.ChoiceField(
         required=False,

@@ -211,6 +211,10 @@ def dashboard(request):
             prospects = prospects.filter(status=data["status"])
         if data.get("stage"):
             prospects = prospects.filter(stage=data["stage"])
+        if data.get("claim_status") == "claimed":
+            prospects = prospects.filter(owner__isnull=False)
+        elif data.get("claim_status") == "unclaimed":
+            prospects = prospects.filter(owner__isnull=True)
         if data.get("workstream"):
             prospects = prospects.filter(workstream=data["workstream"])
         if data.get("outreach_count") != "" and data.get("outreach_count") is not None:

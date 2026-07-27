@@ -188,6 +188,77 @@ class DashboardPermissionTests(AppTestMixin, TestCase):
         self.assertContains(response, "Own Company")
         self.assertNotContains(response, "Other Company")
 
+    def test_frontline_user_filters_own_claimed_and_role_queue_prospects(self):
+        unclaimed_intern = Prospect.objects.create(
+            owner=None,
+            workstream=Prospect.Workstream.INTERN,
+            stage=Prospect.Stage.RESEARCH,
+            company_name="Available Intern Prospect",
+            website="https://available-intern.example.com",
+            created_by=self.manager,
+        )
+        unclaimed_inside_sales = Prospect.objects.create(
+            owner=None,
+            workstream=Prospect.Workstream.INSIDE_SALES,
+            stage=Prospect.Stage.RESEARCH,
+            company_name="Available Inside Sales Prospect",
+            website="https://available-inside.example.com",
+            created_by=self.manager,
+        )
+        self.client.force_login(self.intern)
+
+        claimed_response = self.client.get(
+            reverse("dashboard"),
+            {"claim_status": "claimed"},
+        )
+        self.assertContains(claimed_response, self.own.company_name)
+        self.assertNotContains(claimed_response, unclaimed_intern.company_name)
+        self.assertNotContains(claimed_response, self.other.company_name)
+
+        unclaimed_response = self.client.get(
+            reverse("dashboard"),
+            {"claim_status": "unclaimed"},
+        )
+        self.assertContains(unclaimed_response, unclaimed_intern.company_name)
+        self.assertNotContains(unclaimed_response, self.own.company_name)
+        self.assertNotContains(unclaimed_response, unclaimed_inside_sales.company_name)
+
+    def test_manager_filters_claimed_and_unclaimed_prospects_across_users(self):
+        unclaimed_intern = Prospect.objects.create(
+            owner=None,
+            workstream=Prospect.Workstream.INTERN,
+            stage=Prospect.Stage.RESEARCH,
+            company_name="Unclaimed Intern Prospect",
+            website="https://unclaimed-intern.example.com",
+            created_by=self.manager,
+        )
+        unclaimed_inside_sales = Prospect.objects.create(
+            owner=None,
+            workstream=Prospect.Workstream.INSIDE_SALES,
+            stage=Prospect.Stage.RESEARCH,
+            company_name="Unclaimed Inside Sales Prospect",
+            website="https://unclaimed-inside.example.com",
+            created_by=self.manager,
+        )
+        self.client.force_login(self.manager)
+
+        claimed_response = self.client.get(
+            reverse("dashboard"),
+            {"claim_status": "claimed"},
+        )
+        self.assertContains(claimed_response, self.own.company_name)
+        self.assertContains(claimed_response, self.other.company_name)
+        self.assertNotContains(claimed_response, unclaimed_intern.company_name)
+
+        unclaimed_response = self.client.get(
+            reverse("dashboard"),
+            {"claim_status": "unclaimed"},
+        )
+        self.assertContains(unclaimed_response, unclaimed_intern.company_name)
+        self.assertContains(unclaimed_response, unclaimed_inside_sales.company_name)
+        self.assertNotContains(unclaimed_response, self.own.company_name)
+        self.assertNotContains(unclaimed_response, self.other.company_name)
+
     def test_dashboard_paginates_at_twenty(self):
         for number in range(20):
             self.make_prospect(self.intern, f"Company {number:02}")
