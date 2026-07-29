@@ -309,6 +309,29 @@ class MultiRoleWorkflowTests(AppTestMixin, TestCase):
         self.assertEqual(prospect.workstream, Prospect.Workstream.INSIDE_SALES)
         self.assertEqual(prospect.stage, Prospect.Stage.ELIGIBLE)
 
+    def test_prospect_flags_have_distinct_form_sections_and_are_saved(self):
+        self.client.force_login(self.intern)
+        form_response = self.client.get(reverse("prospect_create"))
+        self.assertContains(form_response, "<h2>Eligibility</h2>", html=True)
+        self.assertContains(form_response, "Is not eligible")
+        self.assertContains(form_response, "<h2>Prospect sent</h2>", html=True)
+
+        response = self.client.post(
+            reverse("prospect_create"),
+            self.prospect_form_data(
+                company_name="Flagged Advisory",
+                website="https://flagged-advisory.example.com",
+                contact_email="partner@flagged-advisory.example.com",
+                is_not_eligible="on",
+                prospect_sent="on",
+            ),
+        )
+
+        prospect = Prospect.objects.get(company_name="Flagged Advisory")
+        self.assertRedirects(response, prospect.get_absolute_url())
+        self.assertTrue(prospect.is_not_eligible)
+        self.assertTrue(prospect.prospect_sent)
+
     def test_linkedin_workstream_requires_founder_account_and_personalization(self):
         form = ProspectForm(
             data=self.prospect_form_data(

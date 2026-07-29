@@ -117,11 +117,13 @@ class Prospect(models.Model):
     consulting_focus = models.CharField(max_length=300, blank=True)
     client_segment = models.CharField(max_length=300, blank=True)
     eligibility_evidence = models.TextField(blank=True)
+    is_not_eligible = models.BooleanField("Is not eligible", default=False)
     contact_name = models.CharField(max_length=200, blank=True)
     contact_title = models.CharField(max_length=200, blank=True)
     contact_linkedin_url = models.URLField(max_length=500, blank=True)
     contact_email = models.EmailField(blank=True)
     contact_phone = models.CharField(max_length=50, blank=True)
+    prospect_sent = models.BooleanField("Prospect sent", default=False)
     founder_account = models.CharField(max_length=30, choices=FounderAccount.choices, blank=True)
     linkedin_connection_status = models.CharField(
         max_length=30,
@@ -354,3 +356,29 @@ class CompanyUpdateAudit(models.Model):
 
     def __str__(self):
         return f"{self.company_id} updated by {self.modified_by}"
+
+
+class ProspectUpdateAudit(models.Model):
+    class Source(models.TextChoices):
+        API = "api", "API"
+
+    prospect = models.ForeignKey(
+        Prospect,
+        on_delete=models.PROTECT,
+        related_name="update_audits",
+    )
+    modified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="prospect_update_audits",
+    )
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.API)
+    previous_values = models.JSONField(default=dict)
+    changed_values = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Prospect {self.prospect_id} updated by {self.modified_by}"

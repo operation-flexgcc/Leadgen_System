@@ -48,6 +48,7 @@
                 <div><dt>Consulting focus</dt><dd>{{ prospect.consulting_focus|default:"Not provided" }}</dd></div>
                 <div><dt>Client segment</dt><dd>{{ prospect.client_segment|default:"Not provided" }}</dd></div>
                 <div class="info-full"><dt>Eligibility evidence</dt><dd>{{ prospect.eligibility_evidence|default:"Not provided"|linebreaksbr }}</dd></div>
+                <div><dt>Is not eligible</dt><dd>{{ prospect.is_not_eligible|yesno:"Yes,No" }}</dd></div>
                 <div><dt>Contact</dt><dd>{{ prospect.contact_name|default:"Research required" }}</dd></div>
                 <div><dt>Title</dt><dd>{{ prospect.contact_title|default:"Not provided" }}</dd></div>
                 <div><dt>Email</dt><dd>{% if prospect.contact_email %}<a href="mailto:{{ prospect.contact_email }}">{{ prospect.contact_email }}</a>{% else %}<span class="muted">Not provided</span>{% endif %}</dd></div>
@@ -134,6 +135,10 @@
             <span>{{ prospect.meeting_participants }}</span>
         </section>
         {% endif %}
+        <section class="side-card">
+            <p class="eyebrow">Prospect sent</p>
+            <strong>{{ prospect.prospect_sent|yesno:"Yes,No" }}</strong>
+        </section>
         <section class="side-card">
             <p class="eyebrow">Founder handoff</p>
             <dl class="compact-details">

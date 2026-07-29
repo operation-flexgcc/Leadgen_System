@@ -92,10 +92,27 @@ Content-Type: application/json
   "phone": "+1 ..."
 }</pre>
 
+        <h3>Update prospect workflow details</h3>
+        <p>Use the prospect ID returned by the claim endpoint or listed in the company response. Managers can update any prospect; outreach users must own the prospect.</p>
+        <pre>PATCH /api/v1/prospects/&lt;prospect_id&gt;/
+Authorization: Bearer &lt;access_token&gt;
+Content-Type: application/json
+
+{
+  "founder_account": "kandarp_soni",
+  "linkedin_connection_status": "request_sent",
+  "personalization_note": "...",
+  "founder_escalation_required": false,
+  "founder_escalation_notes": "",
+  "prospect_sent": true,
+  "is_not_eligible": false
+}</pre>
+        <p>Founder fields apply only to LinkedIn outreach prospects. Founder account values are <code>kandarp_soni</code> and <code>sunit_kala</code>. Connection values are <code>not_sent</code>, <code>request_sent</code>, <code>accepted</code>, and <code>declined</code>. Boolean fields require JSON <code>true</code> or <code>false</code>. Send only the fields you want to change.</p>
+
         <h3>Claim a prospect</h3>
         <pre>POST /api/v1/companies/&lt;company_id&gt;/claim/
 Authorization: Bearer &lt;access_token&gt;</pre>
-        <p>If another outreach user has already claimed it, the API returns HTTP 409 and that user's name.</p>
+        <p>The response includes the prospect ID needed for workflow updates. If another outreach user has already claimed it, the API returns HTTP 409 and that user's name.</p>
     </div>
 </section>
 {% endblock %}
