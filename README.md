@@ -83,6 +83,28 @@ Content-Type: application/json
 
 `GET` on the same URL returns the company details. Managers and system administrators can read or update every company. Frontline users must own the prospect for their workstream. Each successful update is stored with the authenticated user, prior values, new values, and timestamp.
 
+The company response includes a `prospects` list containing the prospect ID and workstream for each company record. Use the prospect ID to update workflow-specific details without changing the records in other workstreams:
+
+```http
+PATCH /api/v1/prospects/<prospect_id>/
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{
+  "founder_account": "kandarp_soni",
+  "linkedin_connection_status": "request_sent",
+  "personalization_note": "...",
+  "founder_escalation_required": false,
+  "founder_escalation_notes": "",
+  "prospect_sent": true,
+  "is_not_eligible": false
+}
+```
+
+`GET` on the same prospect URL returns the current workflow fields. Founder fields apply only to LinkedIn outreach prospects. Valid `founder_account` values are `kandarp_soni`, `sunit_kala`, or an empty string. Valid `linkedin_connection_status` values are `not_sent`, `request_sent`, `accepted`, `declined`, or an empty string. Boolean fields require JSON `true` or `false`. Send only the fields you want to change.
+
+Managers and system administrators can read or update any prospect. A frontline user must own the exact prospect. Each successful workflow update is audited separately with the authenticated user, prior values, new values, and timestamp. The `prospect_sent` and `is_not_eligible` flags do not silently change stage or status.
+
 Claim the prospect for the token user's own workstream with:
 
 ```http
@@ -90,7 +112,7 @@ POST /api/v1/companies/<company_id>/claim/
 Authorization: Bearer <access_token>
 ```
 
-If another user has claimed it, the API returns HTTP `409` and the existing user's name.
+The success response includes `prospect_id`. If another user has claimed it, the API returns HTTP `409` and the existing user's name.
 
 ## Local setup with Docker
 

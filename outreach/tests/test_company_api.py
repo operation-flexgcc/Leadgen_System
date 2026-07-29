@@ -28,6 +28,7 @@ from outreach.models import (
     CompanyUpdateAudit,
     Profile,
     Prospect,
+    ProspectUpdateAudit,
 )
 
 
@@ -420,3 +421,158 @@ class CompanyApiTests(CompanyApiTestMixin, TestCase):
         self.assertTrue(claim_selects)
         for claim_select in claim_selects:
             self.assertNotIn('JOIN "auth_user"', claim_select)
+
+
+class ProspectWorkflowApiTests(CompanyApiTestMixin, TestCase):
+    def setUp(self):
+        self.linkedin_user = self.make_user(
+            "linkedin@example.com",
+            Profile.Role.LINKEDIN_OUTREACH,
+            "Leena LinkedIn",
+        )
+        self.other_linkedin_user = self.make_user(
+            "other-linkedin@example.com",
+            Profile.Role.LINKEDIN_OUTREACH,
+            "Omar LinkedIn",
+        )
+        self.intern = self.make_user("intern@example.com", name="Isha Intern")
+        self.manager = self.make_user(
+            "manager@example.com",
+            Profile.Role.MANAGER,
+            "Meera Manager",
+        )
+        self.prospect = self.make_prospect(
+            self.linkedin_user,
+            "LinkedIn Advisory",
+            "https://linkedin-advisory.example.com",
+            contact_linkedin_url="https://www.linkedin.com/in/asha-rao",
+            founder_account=Prospect.FounderAccount.KANDARP_SONI,
+            linkedin_connection_status=Prospect.LinkedInConnectionStatus.NOT_SENT,
+            personalization_note="Chicago operations practice.",
+        )
+        self.url = reverse("api_prospect_detail", args=[self.prospect.pk])
+
+    def patch_prospect(self, user, payload, *, prospect=None):
+        prospect = prospect or self.prospect
+        return self.client.generic(
+            "PATCH",
+            reverse("api_prospect_detail", args=[prospect.pk]),
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=self.bearer(user),
+        )
+
+    def test_manager_updates_complete_founder_section_and_new_flags_with_audit(self):
+        response = self.patch_prospect(
+            self.manager,
+            {
+                "founder_account": Prospect.FounderAccount.SUNIT_KALA,
+                "linkedin_connection_status": Prospect.LinkedInConnectionStatus.REQUEST_SENT,
+                "personalization_note": "Florida healthcare advisory practice.",
+                "founder_escalation_required": True,
+                "founder_escalation_notes": "Founder should answer the pricing question.",
+                "prospect_sent": True,
+                "is_not_eligible": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.founder_account, Prospect.FounderAccount.SUNIT_KALA)
+        self.assertEqual(
+            self.prospect.linkedin_connection_status,
+            Prospect.LinkedInConnectionStatus.REQUEST_SENT,
+        )
+        self.assertTrue(self.prospect.founder_escalation_required)
+        self.assertTrue(self.prospect.prospect_sent)
+        self.assertTrue(self.prospect.is_not_eligible)
+        self.assertEqual(response.json()["modified_by"]["name"], "Meera Manager")
+        audit = ProspectUpdateAudit.objects.get(prospect=self.prospect)
+        self.assertEqual(audit.modified_by, self.manager)
+        self.assertEqual(
+            audit.previous_values["founder_account"],
+            Prospect.FounderAccount.KANDARP_SONI,
+        )
+        self.assertTrue(audit.changed_values["prospect_sent"])
+
+    def test_owner_can_update_and_another_frontline_user_cannot(self):
+        updated = self.patch_prospect(
+            self.linkedin_user,
+            {"prospect_sent": True, "is_not_eligible": False},
+        )
+        rejected = self.patch_prospect(
+            self.other_linkedin_user,
+            {"prospect_sent": False},
+        )
+
+        self.assertEqual(updated.status_code, 200, updated.content)
+        self.assertEqual(rejected.status_code, 403)
+        self.prospect.refresh_from_db()
+        self.assertTrue(self.prospect.prospect_sent)
+
+    def test_non_linkedin_prospect_accepts_flags_but_rejects_founder_fields(self):
+        intern_prospect = self.make_prospect(
+            self.intern,
+            "Intern Advisory",
+            "https://intern-advisory.example.com",
+        )
+        flags_response = self.patch_prospect(
+            self.intern,
+            {"prospect_sent": True, "is_not_eligible": True},
+            prospect=intern_prospect,
+        )
+        founder_response = self.patch_prospect(
+            self.intern,
+            {"founder_account": Prospect.FounderAccount.KANDARP_SONI},
+            prospect=intern_prospect,
+        )
+
+        self.assertEqual(flags_response.status_code, 200, flags_response.content)
+        self.assertEqual(founder_response.status_code, 400)
+        self.assertIn(
+            "founder_account",
+            founder_response.json()["field_errors"],
+        )
+        intern_prospect.refresh_from_db()
+        self.assertTrue(intern_prospect.prospect_sent)
+        self.assertTrue(intern_prospect.is_not_eligible)
+        self.assertEqual(intern_prospect.founder_account, "")
+
+    def test_invalid_choice_and_string_boolean_return_field_errors(self):
+        response = self.patch_prospect(
+            self.manager,
+            {
+                "founder_account": "unknown_founder",
+                "prospect_sent": "true",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("founder_account", response.json()["field_errors"])
+        self.assertIn("prospect_sent", response.json()["field_errors"])
+        self.assertEqual(ProspectUpdateAudit.objects.count(), 0)
+
+    def test_get_returns_workflow_fields_and_company_lists_prospect_ids(self):
+        prospect_response = self.client.get(
+            self.url,
+            HTTP_AUTHORIZATION=self.bearer(self.manager),
+        )
+        company_response = self.client.get(
+            reverse("api_company_detail", args=[self.prospect.company_id]),
+            HTTP_AUTHORIZATION=self.bearer(self.manager),
+        )
+
+        self.assertEqual(prospect_response.status_code, 200)
+        self.assertEqual(
+            prospect_response.json()["prospect"]["founder_account"],
+            Prospect.FounderAccount.KANDARP_SONI,
+        )
+        self.assertFalse(prospect_response.json()["prospect"]["prospect_sent"])
+        self.assertFalse(prospect_response.json()["prospect"]["is_not_eligible"])
+        self.assertIn(
+            {
+                "id": self.prospect.pk,
+                "workstream": Prospect.Workstream.LINKEDIN_OUTREACH,
+            },
+            company_response.json()["company"]["prospects"],
+        )

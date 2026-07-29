@@ -19,7 +19,14 @@ from .api_tokens import (
     issue_token_pair,
     rotate_refresh_token,
 )
-from .models import ApiAccessToken, CompanyIdentity, CompanyUpdateAudit, Profile, Prospect
+from .models import (
+    ApiAccessToken,
+    CompanyIdentity,
+    CompanyUpdateAudit,
+    Profile,
+    Prospect,
+    ProspectUpdateAudit,
+)
 from .permissions import is_manager
 
 
@@ -33,6 +40,31 @@ API_COMPANY_FIELDS = {
     "linkedin_url": ("contact_linkedin_url", 500),
     "email": ("contact_email", 254),
     "phone": ("contact_phone", 50),
+}
+
+API_PROSPECT_STRING_FIELDS = {
+    "founder_account": ("founder_account", 30, Prospect.FounderAccount.values),
+    "linkedin_connection_status": (
+        "linkedin_connection_status",
+        30,
+        Prospect.LinkedInConnectionStatus.values,
+    ),
+    "personalization_note": ("personalization_note", 500, None),
+    "founder_escalation_notes": ("founder_escalation_notes", 5000, None),
+}
+
+API_PROSPECT_BOOLEAN_FIELDS = {
+    "founder_escalation_required": "founder_escalation_required",
+    "prospect_sent": "prospect_sent",
+    "is_not_eligible": "is_not_eligible",
+}
+
+LINKEDIN_ONLY_PROSPECT_FIELDS = {
+    "founder_account",
+    "linkedin_connection_status",
+    "personalization_note",
+    "founder_escalation_required",
+    "founder_escalation_notes",
 }
 
 
@@ -93,6 +125,16 @@ def _company_details(records):
     for api_field, (model_field, _max_length) in API_COMPANY_FIELDS.items():
         details[api_field] = first_value(model_field)
     details["workstreams"] = sorted({record.workstream for record in records})
+    details["prospects"] = sorted(
+        (
+            {
+                "id": record.pk,
+                "workstream": record.workstream,
+            }
+            for record in records
+        ),
+        key=lambda item: (item["workstream"], item["id"]),
+    )
     return details
 
 
@@ -131,6 +173,67 @@ def _validate_company_changes(payload):
         cleaned[api_field] = value
     if errors:
         validation_error = ValueError("One or more company fields are invalid.")
+        validation_error.field_errors = errors
+        raise validation_error
+    return cleaned
+
+
+def _prospect_details(prospect):
+    owner = None
+    if prospect.owner_id:
+        owner = {
+            "name": _display_name(prospect.owner),
+            "email": prospect.owner.email,
+        }
+    details = {
+        "id": prospect.pk,
+        "company_id": str(prospect.company_id),
+        "company_name": prospect.company_name,
+        "workstream": prospect.workstream,
+        "owner": owner,
+    }
+    for api_field, (model_field, _max_length, _choices) in API_PROSPECT_STRING_FIELDS.items():
+        details[api_field] = getattr(prospect, model_field)
+    for api_field, model_field in API_PROSPECT_BOOLEAN_FIELDS.items():
+        details[api_field] = getattr(prospect, model_field)
+    return details
+
+
+def _validate_prospect_changes(payload):
+    supported_fields = set(API_PROSPECT_STRING_FIELDS) | set(API_PROSPECT_BOOLEAN_FIELDS)
+    unknown_fields = sorted(set(payload) - supported_fields)
+    if unknown_fields:
+        raise ValueError(f"Unsupported field(s): {', '.join(unknown_fields)}.")
+    if not payload:
+        raise ValueError("Provide at least one prospect field to update.")
+
+    cleaned = {}
+    errors = {}
+    for api_field, value in payload.items():
+        if api_field in API_PROSPECT_BOOLEAN_FIELDS:
+            if not isinstance(value, bool):
+                errors[api_field] = "Use a JSON boolean: true or false."
+                continue
+            cleaned[api_field] = value
+            continue
+
+        if value is None:
+            value = ""
+        if not isinstance(value, str):
+            errors[api_field] = "Use a string or null value."
+            continue
+        value = value.strip()
+        _model_field, max_length, choices = API_PROSPECT_STRING_FIELDS[api_field]
+        if len(value) > max_length:
+            errors[api_field] = f"Use no more than {max_length} characters."
+            continue
+        if value and choices and value not in choices:
+            errors[api_field] = f"Choose one of: {', '.join(choices)}."
+            continue
+        cleaned[api_field] = value
+
+    if errors:
+        validation_error = ValueError("One or more prospect fields are invalid.")
         validation_error.field_errors = errors
         raise validation_error
     return cleaned
@@ -275,6 +378,95 @@ def company_detail(request, company_id):
                 "email": request.api_user.email,
             },
             "company": _company_details(refreshed_records),
+        }
+    )
+
+
+@csrf_exempt
+@api_token_required
+@require_http_methods(["GET", "PATCH"])
+def prospect_detail(request, prospect_id):
+    if request.method == "GET":
+        try:
+            prospect = Prospect.objects.select_related("owner").get(pk=prospect_id)
+        except Prospect.DoesNotExist:
+            return _json_error("Prospect ID was not found.", 404)
+        if not is_manager(request.api_user) and prospect.owner_id != request.api_user.id:
+            return _json_error("Claim this prospect before viewing its workflow details via API.", 403)
+        return JsonResponse({"prospect": _prospect_details(prospect)})
+
+    try:
+        payload = _read_json_object(request)
+        cleaned_changes = _validate_prospect_changes(payload)
+    except ValueError as error:
+        return _json_error(
+            str(error),
+            400,
+            errors=getattr(error, "field_errors", None),
+        )
+
+    with transaction.atomic():
+        try:
+            # Do not join nullable owner while locking the prospect row.
+            prospect = Prospect.objects.select_for_update().get(pk=prospect_id)
+        except Prospect.DoesNotExist:
+            return _json_error("Prospect ID was not found.", 404)
+        if not is_manager(request.api_user) and prospect.owner_id != request.api_user.id:
+            return _json_error("Claim this prospect before modifying its workflow details.", 403)
+
+        invalid_linkedin_fields = sorted(
+            set(cleaned_changes).intersection(LINKEDIN_ONLY_PROSPECT_FIELDS)
+        )
+        if (
+            invalid_linkedin_fields
+            and prospect.workstream != Prospect.Workstream.LINKEDIN_OUTREACH
+        ):
+            return _json_error(
+                "Founder LinkedIn fields can only be updated for a LinkedIn outreach prospect.",
+                400,
+                errors={
+                    field: "This field is only available in the LinkedIn outreach workstream."
+                    for field in invalid_linkedin_fields
+                },
+            )
+
+        previous_values = {}
+        model_changes = {}
+        for api_field, value in cleaned_changes.items():
+            if api_field in API_PROSPECT_STRING_FIELDS:
+                model_field = API_PROSPECT_STRING_FIELDS[api_field][0]
+            else:
+                model_field = API_PROSPECT_BOOLEAN_FIELDS[api_field]
+            previous_values[api_field] = getattr(prospect, model_field)
+            model_changes[model_field] = value
+            setattr(prospect, model_field, value)
+
+        try:
+            prospect.full_clean()
+        except ValidationError as error:
+            return _json_error(
+                "The update would leave the prospect record invalid.",
+                400,
+                errors=getattr(error, "message_dict", {"prospect": error.messages}),
+            )
+
+        prospect.save(update_fields=[*model_changes, "updated_at"])
+        ProspectUpdateAudit.objects.create(
+            prospect=prospect,
+            modified_by=request.api_user,
+            previous_values=previous_values,
+            changed_values=cleaned_changes,
+        )
+
+    refreshed_prospect = Prospect.objects.select_related("owner").get(pk=prospect_id)
+    return JsonResponse(
+        {
+            "message": "Prospect workflow details updated.",
+            "modified_by": {
+                "name": _display_name(request.api_user),
+                "email": request.api_user.email,
+            },
+            "prospect": _prospect_details(refreshed_prospect),
         }
     )
 

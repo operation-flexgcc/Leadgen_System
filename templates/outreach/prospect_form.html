@@ -58,6 +58,7 @@
             <div class="field">{% include "outreach/field.html" with field=form.consulting_focus %}</div>
             <div class="field">{% include "outreach/field.html" with field=form.client_segment %}</div>
             <div class="field field-full">{% include "outreach/field.html" with field=form.eligibility_evidence %}</div>
+            <div class="field checkbox-field">{% include "outreach/field.html" with field=form.is_not_eligible %}</div>
         </div>
     </section>
 
@@ -75,9 +76,19 @@
         </div>
     </section>
 
-    <section class="form-section workstream-section" data-workstream-section="linkedin_outreach">
+    <section class="form-section">
         <div class="form-section-heading">
             <span>04</span>
+            <div><h2>Prospect sent</h2><p>This marker is tracked separately from outreach activity and pipeline status.</p></div>
+        </div>
+        <div class="form-grid">
+            <div class="field checkbox-field">{% include "outreach/field.html" with field=form.prospect_sent %}</div>
+        </div>
+    </section>
+
+    <section class="form-section workstream-section" data-workstream-section="linkedin_outreach">
+        <div class="form-section-heading">
+            <span>05</span>
             <div><h2>Founder LinkedIn account</h2><p>Never contact the same person or firm from both founder accounts.</p></div>
         </div>
         <div class="form-grid">
@@ -91,7 +102,7 @@
 
     <section class="form-section">
         <div class="form-section-heading">
-            <span data-section-number data-default-number="04" data-linkedin-number="05">05</span>
+            <span data-section-number data-default-number="05" data-linkedin-number="06">06</span>
             <div><h2>Interest and handoff</h2><p>Give founders only verified facts, material shared, explicit questions, and confirmed meeting details.</p></div>
         </div>
         <div class="form-grid">
@@ -103,7 +114,7 @@
 
     <section class="form-section">
         <div class="form-section-heading">
-            <span data-section-number data-default-number="05" data-linkedin-number="06">06</span>
+            <span data-section-number data-default-number="06" data-linkedin-number="07">07</span>
             <div><h2>Follow-up</h2><p>Update the outcome and define one clear next action.</p></div>
         </div>
         <div class="form-grid">

@@ -16,6 +16,7 @@ urlpatterns = [
     path("api/v1/token/refresh/", api.token_refresh, name="api_token_refresh"),
     path("api/v1/companies/<uuid:company_id>/", api.company_detail, name="api_company_detail"),
     path("api/v1/companies/<uuid:company_id>/claim/", api.company_claim, name="api_company_claim"),
+    path("api/v1/prospects/<int:prospect_id>/", api.prospect_detail, name="api_prospect_detail"),
     path("prospects/new/", views.prospect_create, name="prospect_create"),
     path("prospects/<int:pk>/", views.prospect_detail, name="prospect_detail"),
     path("prospects/<int:pk>/edit/", views.prospect_update, name="prospect_update"),
