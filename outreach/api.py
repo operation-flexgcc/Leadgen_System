@@ -1,4 +1,5 @@
 import json
+from datetime import date
 from functools import wraps
 
 from django.contrib import messages
@@ -6,9 +7,10 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.validators import EmailValidator, URLValidator
 from django.db import transaction
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_POST
@@ -19,6 +21,7 @@ from .api_tokens import (
     issue_token_pair,
     rotate_refresh_token,
 )
+from .api_documentation import API_DOCUMENTATION, API_DOCUMENTATION_ORDER
 from .models import (
     ApiAccessToken,
     CompanyIdentity,
@@ -51,12 +54,60 @@ API_PROSPECT_STRING_FIELDS = {
     ),
     "personalization_note": ("personalization_note", 500, None),
     "founder_escalation_notes": ("founder_escalation_notes", 5000, None),
+    "material_shared": ("material_shared", 30, Prospect.MaterialShared.values),
+    "interest_signal": ("interest_signal", 5000, None),
+    "questions_for_founders": ("questions_for_founders", 5000, None),
+    "status": ("status", 40, Prospect.Status.values),
+    "next_action": ("next_action", 250, None),
+    "comments": ("comments", 5000, None),
+    "meeting_timezone": ("meeting_timezone", 80, None),
+    "meeting_participants": ("meeting_participants", 500, None),
 }
 
 API_PROSPECT_BOOLEAN_FIELDS = {
     "founder_escalation_required": "founder_escalation_required",
     "prospect_sent": "prospect_sent",
     "is_not_eligible": "is_not_eligible",
+}
+
+API_PROSPECT_DATE_FIELDS = {
+    "next_action_date": "next_action_date",
+}
+
+API_PROSPECT_DATETIME_FIELDS = {
+    "meeting_scheduled_at": "meeting_scheduled_at",
+}
+
+PROSPECT_WORKFLOW_FIELDS = {
+    "prospect-sent": ("prospect_sent",),
+    "founder-linkedin": (
+        "founder_account",
+        "linkedin_connection_status",
+        "personalization_note",
+        "founder_escalation_required",
+        "founder_escalation_notes",
+    ),
+    "interest-handoff": (
+        "material_shared",
+        "interest_signal",
+        "questions_for_founders",
+    ),
+    "follow-up": (
+        "status",
+        "next_action",
+        "next_action_date",
+        "comments",
+        "meeting_scheduled_at",
+        "meeting_timezone",
+        "meeting_participants",
+    ),
+}
+
+PROSPECT_WORKFLOW_MESSAGES = {
+    "prospect-sent": "Prospect sent status updated.",
+    "founder-linkedin": "Founder LinkedIn details updated.",
+    "interest-handoff": "Interest and handoff details updated.",
+    "follow-up": "Follow-up details updated.",
 }
 
 LINKEDIN_ONLY_PROSPECT_FIELDS = {
@@ -178,7 +229,15 @@ def _validate_company_changes(payload):
     return cleaned
 
 
-def _prospect_details(prospect):
+def _serialize_api_value(value):
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def _prospect_details(prospect, *, fields=None):
     owner = None
     if prospect.owner_id:
         owner = {
@@ -192,15 +251,31 @@ def _prospect_details(prospect):
         "workstream": prospect.workstream,
         "owner": owner,
     }
+    selected_fields = set(fields) if fields is not None else None
     for api_field, (model_field, _max_length, _choices) in API_PROSPECT_STRING_FIELDS.items():
-        details[api_field] = getattr(prospect, model_field)
+        if selected_fields is None or api_field in selected_fields:
+            details[api_field] = getattr(prospect, model_field)
     for api_field, model_field in API_PROSPECT_BOOLEAN_FIELDS.items():
-        details[api_field] = getattr(prospect, model_field)
+        if selected_fields is None or api_field in selected_fields:
+            details[api_field] = getattr(prospect, model_field)
+    for api_field, model_field in API_PROSPECT_DATE_FIELDS.items():
+        if selected_fields is None or api_field in selected_fields:
+            details[api_field] = _serialize_api_value(getattr(prospect, model_field))
+    for api_field, model_field in API_PROSPECT_DATETIME_FIELDS.items():
+        if selected_fields is None or api_field in selected_fields:
+            details[api_field] = _serialize_api_value(getattr(prospect, model_field))
     return details
 
 
-def _validate_prospect_changes(payload):
-    supported_fields = set(API_PROSPECT_STRING_FIELDS) | set(API_PROSPECT_BOOLEAN_FIELDS)
+def _validate_prospect_changes(payload, *, allowed_fields=None):
+    supported_fields = (
+        set(API_PROSPECT_STRING_FIELDS)
+        | set(API_PROSPECT_BOOLEAN_FIELDS)
+        | set(API_PROSPECT_DATE_FIELDS)
+        | set(API_PROSPECT_DATETIME_FIELDS)
+    )
+    if allowed_fields is not None:
+        supported_fields &= set(allowed_fields)
     unknown_fields = sorted(set(payload) - supported_fields)
     if unknown_fields:
         raise ValueError(f"Unsupported field(s): {', '.join(unknown_fields)}.")
@@ -215,6 +290,36 @@ def _validate_prospect_changes(payload):
                 errors[api_field] = "Use a JSON boolean: true or false."
                 continue
             cleaned[api_field] = value
+            continue
+
+        if api_field in API_PROSPECT_DATE_FIELDS:
+            if value is None or value == "":
+                cleaned[api_field] = None
+                continue
+            if not isinstance(value, str):
+                errors[api_field] = "Use an ISO date string in YYYY-MM-DD format or null."
+                continue
+            try:
+                cleaned[api_field] = date.fromisoformat(value)
+            except ValueError:
+                errors[api_field] = "Use an ISO date string in YYYY-MM-DD format."
+            continue
+
+        if api_field in API_PROSPECT_DATETIME_FIELDS:
+            if value is None or value == "":
+                cleaned[api_field] = None
+                continue
+            if not isinstance(value, str):
+                errors[api_field] = "Use an ISO 8601 date-time string with a UTC offset or null."
+                continue
+            parsed_value = parse_datetime(value)
+            if parsed_value is None or timezone.is_naive(parsed_value):
+                errors[api_field] = (
+                    "Use an ISO 8601 date-time with a UTC offset, for example "
+                    "2026-09-15T10:30:00-04:00."
+                )
+                continue
+            cleaned[api_field] = parsed_value
             continue
 
         if value is None:
@@ -253,9 +358,33 @@ def api_access(request):
                 revoked_at__isnull=True
             ),
             "company_fields": API_COMPANY_FIELDS.keys(),
+            "workflow_api_docs": [
+                API_DOCUMENTATION[slug] for slug in API_DOCUMENTATION_ORDER
+            ],
         },
     )
     response["Cache-Control"] = "no-store"
+    return response
+
+
+@never_cache
+@login_required
+@require_http_methods(["GET"])
+def api_documentation_page(request, slug):
+    documentation = API_DOCUMENTATION.get(slug)
+    if documentation is None:
+        raise Http404("API documentation page was not found.")
+    response = render(
+        request,
+        "outreach/api_documentation.html",
+        {
+            "documentation": documentation,
+            "workflow_api_docs": [
+                API_DOCUMENTATION[item] for item in API_DOCUMENTATION_ORDER
+            ],
+        },
+    )
+    response["Cache-Control"] = "private, no-store"
     return response
 
 
@@ -382,10 +511,67 @@ def company_detail(request, company_id):
     )
 
 
-@csrf_exempt
-@api_token_required
-@require_http_methods(["GET", "PATCH"])
-def prospect_detail(request, prospect_id):
+def _prospect_model_field(api_field):
+    if api_field in API_PROSPECT_STRING_FIELDS:
+        return API_PROSPECT_STRING_FIELDS[api_field][0]
+    if api_field in API_PROSPECT_BOOLEAN_FIELDS:
+        return API_PROSPECT_BOOLEAN_FIELDS[api_field]
+    if api_field in API_PROSPECT_DATE_FIELDS:
+        return API_PROSPECT_DATE_FIELDS[api_field]
+    return API_PROSPECT_DATETIME_FIELDS[api_field]
+
+
+def _prospect_response_is_recorded(prospect):
+    later_response_stages = {
+        Prospect.Stage.RESPONDED,
+        Prospect.Stage.INTERESTED,
+        Prospect.Stage.FOUNDER_MEETING_BOOKED,
+        Prospect.Stage.MEETING_COMPLETED,
+        Prospect.Stage.CLOSED,
+    }
+    return (
+        bool(prospect.interest_signal.strip())
+        or prospect.stage in later_response_stages
+        or prospect.outreaches.exclude(response="").exists()
+    )
+
+
+def _validate_founder_escalation_workflow(prospect, cleaned_changes):
+    if not cleaned_changes.get("founder_escalation_required"):
+        return None
+    final_connection_status = cleaned_changes.get(
+        "linkedin_connection_status",
+        prospect.linkedin_connection_status,
+    )
+    requirement_errors = []
+    if final_connection_status != Prospect.LinkedInConnectionStatus.ACCEPTED:
+        requirement_errors.append(
+            "Mark the LinkedIn invitation as accepted before requesting founder escalation."
+        )
+    if not _prospect_response_is_recorded(prospect):
+        requirement_errors.append(
+            "Record the prospect response or interest signal before requesting founder escalation."
+        )
+    if requirement_errors:
+        return _json_error(
+            "Founder escalation is available only after the invitation is accepted and a response is recorded.",
+            400,
+            errors={
+                "founder_escalation_required": " ".join(requirement_errors)
+            },
+        )
+    return None
+
+
+def _prospect_workflow_api(
+    request,
+    prospect_id,
+    *,
+    allowed_fields=None,
+    message="Prospect workflow details updated.",
+    validate_founder_escalation=False,
+):
+    response_fields = tuple(allowed_fields) if allowed_fields is not None else None
     if request.method == "GET":
         try:
             prospect = Prospect.objects.select_related("owner").get(pk=prospect_id)
@@ -393,11 +579,16 @@ def prospect_detail(request, prospect_id):
             return _json_error("Prospect ID was not found.", 404)
         if not is_manager(request.api_user) and prospect.owner_id != request.api_user.id:
             return _json_error("Claim this prospect before viewing its workflow details via API.", 403)
-        return JsonResponse({"prospect": _prospect_details(prospect)})
+        return JsonResponse(
+            {"prospect": _prospect_details(prospect, fields=response_fields)}
+        )
 
     try:
         payload = _read_json_object(request)
-        cleaned_changes = _validate_prospect_changes(payload)
+        cleaned_changes = _validate_prospect_changes(
+            payload,
+            allowed_fields=allowed_fields,
+        )
     except ValueError as error:
         return _json_error(
             str(error),
@@ -430,16 +621,27 @@ def prospect_detail(request, prospect_id):
                 },
             )
 
+        if validate_founder_escalation:
+            validation_response = _validate_founder_escalation_workflow(
+                prospect,
+                cleaned_changes,
+            )
+            if validation_response is not None:
+                return validation_response
+
         previous_values = {}
         model_changes = {}
+        original_stage = prospect.stage
         for api_field, value in cleaned_changes.items():
-            if api_field in API_PROSPECT_STRING_FIELDS:
-                model_field = API_PROSPECT_STRING_FIELDS[api_field][0]
-            else:
-                model_field = API_PROSPECT_BOOLEAN_FIELDS[api_field]
-            previous_values[api_field] = getattr(prospect, model_field)
+            model_field = _prospect_model_field(api_field)
+            previous_values[api_field] = _serialize_api_value(
+                getattr(prospect, model_field)
+            )
             model_changes[model_field] = value
             setattr(prospect, model_field, value)
+
+        if "status" in cleaned_changes:
+            prospect.sync_stage_from_status()
 
         try:
             prospect.full_clean()
@@ -450,24 +652,90 @@ def prospect_detail(request, prospect_id):
                 errors=getattr(error, "message_dict", {"prospect": error.messages}),
             )
 
-        prospect.save(update_fields=[*model_changes, "updated_at"])
+        update_fields = list(model_changes)
+        if prospect.stage != original_stage:
+            update_fields.append("stage")
+        update_fields.append("updated_at")
+        prospect.save(update_fields=update_fields)
         ProspectUpdateAudit.objects.create(
             prospect=prospect,
             modified_by=request.api_user,
             previous_values=previous_values,
-            changed_values=cleaned_changes,
+            changed_values={
+                field: _serialize_api_value(value)
+                for field, value in cleaned_changes.items()
+            },
         )
 
     refreshed_prospect = Prospect.objects.select_related("owner").get(pk=prospect_id)
     return JsonResponse(
         {
-            "message": "Prospect workflow details updated.",
+            "message": message,
             "modified_by": {
                 "name": _display_name(request.api_user),
                 "email": request.api_user.email,
             },
-            "prospect": _prospect_details(refreshed_prospect),
+            "prospect": _prospect_details(
+                refreshed_prospect,
+                fields=response_fields,
+            ),
         }
+    )
+
+
+@csrf_exempt
+@api_token_required
+@require_http_methods(["GET", "PATCH"])
+def prospect_detail(request, prospect_id):
+    return _prospect_workflow_api(request, prospect_id)
+
+
+@csrf_exempt
+@api_token_required
+@require_http_methods(["GET", "PATCH"])
+def prospect_sent(request, prospect_id):
+    return _prospect_workflow_api(
+        request,
+        prospect_id,
+        allowed_fields=PROSPECT_WORKFLOW_FIELDS["prospect-sent"],
+        message=PROSPECT_WORKFLOW_MESSAGES["prospect-sent"],
+    )
+
+
+@csrf_exempt
+@api_token_required
+@require_http_methods(["GET", "PATCH"])
+def founder_linkedin(request, prospect_id):
+    return _prospect_workflow_api(
+        request,
+        prospect_id,
+        allowed_fields=PROSPECT_WORKFLOW_FIELDS["founder-linkedin"],
+        message=PROSPECT_WORKFLOW_MESSAGES["founder-linkedin"],
+        validate_founder_escalation=True,
+    )
+
+
+@csrf_exempt
+@api_token_required
+@require_http_methods(["GET", "PATCH"])
+def interest_handoff(request, prospect_id):
+    return _prospect_workflow_api(
+        request,
+        prospect_id,
+        allowed_fields=PROSPECT_WORKFLOW_FIELDS["interest-handoff"],
+        message=PROSPECT_WORKFLOW_MESSAGES["interest-handoff"],
+    )
+
+
+@csrf_exempt
+@api_token_required
+@require_http_methods(["GET", "PATCH"])
+def follow_up(request, prospect_id):
+    return _prospect_workflow_api(
+        request,
+        prospect_id,
+        allowed_fields=PROSPECT_WORKFLOW_FIELDS["follow-up"],
+        message=PROSPECT_WORKFLOW_MESSAGES["follow-up"],
     )
 
 

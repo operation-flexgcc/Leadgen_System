@@ -2,7 +2,8 @@ import csv
 import hashlib
 import json
 import uuid
-from datetime import timedelta
+from datetime import date, timedelta
+from html import escape
 from io import BytesIO, StringIO
 
 import jwt
@@ -576,3 +577,365 @@ class ProspectWorkflowApiTests(CompanyApiTestMixin, TestCase):
             },
             company_response.json()["company"]["prospects"],
         )
+
+
+class ProspectSectionApiTests(CompanyApiTestMixin, TestCase):
+    def setUp(self):
+        self.linkedin_user = self.make_user(
+            "linkedin-sections@example.com",
+            Profile.Role.LINKEDIN_OUTREACH,
+            "Leena LinkedIn",
+        )
+        self.other_linkedin_user = self.make_user(
+            "other-linkedin-sections@example.com",
+            Profile.Role.LINKEDIN_OUTREACH,
+            "Omar LinkedIn",
+        )
+        self.intern = self.make_user(
+            "intern-sections@example.com",
+            Profile.Role.INTERN,
+            "Isha Intern",
+        )
+        self.manager = self.make_user(
+            "manager-sections@example.com",
+            Profile.Role.MANAGER,
+            "Meera Manager",
+        )
+        self.prospect = self.make_prospect(
+            self.linkedin_user,
+            "Section API Advisory",
+            "https://section-api.example.com",
+            contact_email="",
+            contact_linkedin_url="https://www.linkedin.com/in/section-api-contact",
+            founder_account=Prospect.FounderAccount.KANDARP_SONI,
+            linkedin_connection_status=Prospect.LinkedInConnectionStatus.NOT_SENT,
+            personalization_note="Chicago GCC advisory practice.",
+        )
+
+    def patch_section(self, route_name, payload, *, user=None, prospect=None):
+        user = user or self.linkedin_user
+        prospect = prospect or self.prospect
+        return self.client.generic(
+            "PATCH",
+            reverse(route_name, args=[prospect.pk]),
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=self.bearer(user),
+        )
+
+    def test_prospect_sent_api_marks_true_and_audits(self):
+        response = self.patch_section(
+            "api_prospect_sent",
+            {"prospect_sent": True},
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["message"], "Prospect sent status updated.")
+        self.assertTrue(response.json()["prospect"]["prospect_sent"])
+        self.assertNotIn("interest_signal", response.json()["prospect"])
+        self.prospect.refresh_from_db()
+        self.assertTrue(self.prospect.prospect_sent)
+        audit = ProspectUpdateAudit.objects.get(prospect=self.prospect)
+        self.assertEqual(audit.previous_values, {"prospect_sent": False})
+        self.assertEqual(audit.changed_values, {"prospect_sent": True})
+
+    def test_prospect_sent_api_rejects_wrong_types_and_unrelated_fields(self):
+        wrong_type = self.patch_section(
+            "api_prospect_sent",
+            {"prospect_sent": "true"},
+        )
+        unrelated = self.patch_section(
+            "api_prospect_sent",
+            {"interest_signal": "Interested"},
+        )
+
+        self.assertEqual(wrong_type.status_code, 400)
+        self.assertIn("prospect_sent", wrong_type.json()["field_errors"])
+        self.assertEqual(unrelated.status_code, 400)
+        self.assertIn("Unsupported field(s): interest_signal", unrelated.json()["error"])
+        self.assertEqual(ProspectUpdateAudit.objects.count(), 0)
+
+    def test_scoped_api_requires_owner_or_manager(self):
+        forbidden = self.patch_section(
+            "api_interest_handoff",
+            {"interest_signal": "Interested"},
+            user=self.other_linkedin_user,
+        )
+        unauthenticated = self.client.generic(
+            "PATCH",
+            reverse("api_interest_handoff", args=[self.prospect.pk]),
+            data=json.dumps({"interest_signal": "Interested"}),
+            content_type="application/json",
+        )
+        manager_update = self.patch_section(
+            "api_interest_handoff",
+            {"interest_signal": "Interested"},
+            user=self.manager,
+        )
+
+        self.assertEqual(forbidden.status_code, 403)
+        self.assertEqual(unauthenticated.status_code, 401)
+        self.assertEqual(manager_update.status_code, 200)
+
+    def test_founder_escalation_requires_accepted_invitation_and_response(self):
+        response = self.patch_section(
+            "api_founder_linkedin",
+            {"founder_escalation_required": True},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        field_error = response.json()["field_errors"]["founder_escalation_required"]
+        self.assertIn("invitation as accepted", field_error)
+        self.assertIn("prospect response or interest signal", field_error)
+        self.assertEqual(ProspectUpdateAudit.objects.count(), 0)
+
+    def test_founder_linkedin_api_escalates_after_interest_and_acceptance(self):
+        interest_response = self.patch_section(
+            "api_interest_handoff",
+            {
+                "material_shared": Prospect.MaterialShared.ONE_PAGE,
+                "interest_signal": "Asked for a founder discussion.",
+                "questions_for_founders": "Can the engagement start with a pilot?",
+            },
+        )
+        founder_response = self.patch_section(
+            "api_founder_linkedin",
+            {
+                "linkedin_connection_status": Prospect.LinkedInConnectionStatus.ACCEPTED,
+                "founder_escalation_required": True,
+                "founder_escalation_notes": "Founder should answer the pilot question.",
+            },
+        )
+
+        self.assertEqual(interest_response.status_code, 200, interest_response.content)
+        self.assertEqual(founder_response.status_code, 200, founder_response.content)
+        self.prospect.refresh_from_db()
+        self.assertEqual(
+            self.prospect.linkedin_connection_status,
+            Prospect.LinkedInConnectionStatus.ACCEPTED,
+        )
+        self.assertTrue(self.prospect.founder_escalation_required)
+        self.assertEqual(ProspectUpdateAudit.objects.filter(prospect=self.prospect).count(), 2)
+
+    def test_founder_linkedin_api_rejects_non_linkedin_prospect(self):
+        intern_prospect = self.make_prospect(
+            self.intern,
+            "Intern Section Advisory",
+            "https://intern-section.example.com",
+        )
+        response = self.patch_section(
+            "api_founder_linkedin",
+            {"founder_account": Prospect.FounderAccount.KANDARP_SONI},
+            user=self.intern,
+            prospect=intern_prospect,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("founder_account", response.json()["field_errors"])
+
+    def test_interest_handoff_api_updates_all_fields_and_validates_dropdown(self):
+        updated = self.patch_section(
+            "api_interest_handoff",
+            {
+                "material_shared": Prospect.MaterialShared.ONE_PAGE_AND_DECK,
+                "interest_signal": "Requested a delivery-model discussion.",
+                "questions_for_founders": "Can FlexGCC support a five-person pilot?",
+            },
+        )
+        invalid = self.patch_section(
+            "api_interest_handoff",
+            {"material_shared": "full_proposal"},
+        )
+
+        self.assertEqual(updated.status_code, 200, updated.content)
+        self.assertEqual(
+            updated.json()["prospect"]["material_shared"],
+            Prospect.MaterialShared.ONE_PAGE_AND_DECK,
+        )
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn("material_shared", invalid.json()["field_errors"])
+        self.prospect.refresh_from_db()
+        self.assertEqual(
+            self.prospect.questions_for_founders,
+            "Can FlexGCC support a five-person pilot?",
+        )
+
+    def test_follow_up_api_updates_status_action_date_comments_and_stage(self):
+        response = self.patch_section(
+            "api_follow_up",
+            {
+                "status": Prospect.Status.MEETING_TO_SCHEDULE,
+                "next_action": "Send three meeting slots",
+                "next_action_date": "2026-09-15",
+                "comments": "Prospect prefers morning US Central time.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["prospect"]["next_action_date"], "2026-09-15")
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.status, Prospect.Status.MEETING_TO_SCHEDULE)
+        self.assertEqual(self.prospect.stage, Prospect.Stage.INTERESTED)
+        self.assertEqual(self.prospect.next_action_date, date(2026, 9, 15))
+        audit = ProspectUpdateAudit.objects.get(prospect=self.prospect)
+        self.assertEqual(audit.changed_values["next_action_date"], "2026-09-15")
+
+    def test_follow_up_api_enforces_action_pair_and_date_types(self):
+        missing_date = self.patch_section(
+            "api_follow_up",
+            {"next_action": "Send meeting slots"},
+        )
+        invalid_date = self.patch_section(
+            "api_follow_up",
+            {"next_action_date": "15/09/2026"},
+        )
+
+        self.assertEqual(missing_date.status_code, 400)
+        self.assertIn("next_action_date", missing_date.json()["field_errors"])
+        self.assertEqual(invalid_date.status_code, 400)
+        self.assertIn("next_action_date", invalid_date.json()["field_errors"])
+
+    def test_follow_up_api_requires_complete_timezone_aware_meeting(self):
+        incomplete = self.patch_section(
+            "api_follow_up",
+            {"status": Prospect.Status.MEETING_SCHEDULED},
+        )
+        naive_datetime = self.patch_section(
+            "api_follow_up",
+            {"meeting_scheduled_at": "2026-09-18T10:30:00"},
+        )
+        complete = self.patch_section(
+            "api_follow_up",
+            {
+                "status": Prospect.Status.MEETING_SCHEDULED,
+                "meeting_scheduled_at": "2026-09-18T10:30:00-04:00",
+                "meeting_timezone": "America/Chicago",
+                "meeting_participants": "Asha Rao, Kandarp Soni",
+            },
+        )
+
+        self.assertEqual(incomplete.status_code, 400)
+        self.assertIn("meeting_scheduled_at", incomplete.json()["field_errors"])
+        self.assertIn("meeting_timezone", incomplete.json()["field_errors"])
+        self.assertIn("meeting_participants", incomplete.json()["field_errors"])
+        self.assertEqual(naive_datetime.status_code, 400)
+        self.assertIn("UTC offset", naive_datetime.json()["field_errors"]["meeting_scheduled_at"])
+        self.assertEqual(complete.status_code, 200, complete.content)
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.stage, Prospect.Stage.FOUNDER_MEETING_BOOKED)
+        self.assertTrue(timezone.is_aware(self.prospect.meeting_scheduled_at))
+
+    def test_scoped_get_returns_only_section_fields(self):
+        response = self.client.get(
+            reverse("api_prospect_sent", args=[self.prospect.pk]),
+            HTTP_AUTHORIZATION=self.bearer(self.linkedin_user),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            set(response.json()["prospect"]),
+            {
+                "id",
+                "company_id",
+                "company_name",
+                "workstream",
+                "owner",
+                "prospect_sent",
+            },
+        )
+
+    def test_general_prospect_api_remains_backward_compatible_with_new_fields(self):
+        response = self.client.generic(
+            "PATCH",
+            reverse("api_prospect_detail", args=[self.prospect.pk]),
+            data=json.dumps(
+                {
+                    "material_shared": Prospect.MaterialShared.SHORT_DECK,
+                    "interest_signal": "Asked for more information.",
+                    "comments": "Updated through the general endpoint.",
+                }
+            ),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=self.bearer(self.linkedin_user),
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            response.json()["prospect"]["material_shared"],
+            Prospect.MaterialShared.SHORT_DECK,
+        )
+        self.assertEqual(
+            response.json()["prospect"]["comments"],
+            "Updated through the general endpoint.",
+        )
+
+
+class ApiDocumentationTests(CompanyApiTestMixin, TestCase):
+    def setUp(self):
+        self.user = self.make_user(
+            "api-docs@example.com",
+            Profile.Role.MANAGER,
+            "Meera Manager",
+        )
+
+    def test_api_access_lists_four_separate_guides(self):
+        self.client.force_login(self.user)
+        response = self.client.get(reverse("api_access"))
+
+        self.assertEqual(response.status_code, 200)
+        for slug, title in [
+            ("prospect-sent", "Prospect sent API"),
+            ("founder-linkedin", "Founder LinkedIn account API"),
+            ("interest-handoff", "Interest and handoff API"),
+            ("follow-up", "Follow-up API"),
+        ]:
+            with self.subTest(slug=slug):
+                self.assertContains(response, title)
+                self.assertContains(response, reverse("api_documentation", args=[slug]))
+
+    def test_each_guide_documents_fields_types_values_and_examples(self):
+        self.client.force_login(self.user)
+        expectations = {
+            "prospect-sent": ["prospect_sent", "boolean", '"prospect_sent": true'],
+            "founder-linkedin": [
+                "founder_escalation_required",
+                "kandarp_soni",
+                "sunit_kala",
+                "accepted",
+            ],
+            "interest-handoff": [
+                "material_shared",
+                "one_page",
+                "short_deck",
+                "one_page_and_deck",
+            ],
+            "follow-up": [
+                "next_action_date",
+                "meeting_scheduled",
+                "meeting_scheduled_at",
+                "ISO 8601",
+            ],
+        }
+
+        for slug, expected_text in expectations.items():
+            with self.subTest(slug=slug):
+                response = self.client.get(reverse("api_documentation", args=[slug]))
+                self.assertEqual(response.status_code, 200)
+                self.assertIn("private", response["Cache-Control"])
+                self.assertIn("no-store", response["Cache-Control"])
+                for text in expected_text:
+                    self.assertContains(response, escape(text))
+                self.assertContains(response, "Authorization: Bearer")
+                self.assertContains(response, "curl --request PATCH")
+
+    def test_documentation_pages_require_login_and_unknown_page_is_404(self):
+        protected = self.client.get(
+            reverse("api_documentation", args=["prospect-sent"])
+        )
+        self.client.force_login(self.user)
+        missing = self.client.get(
+            reverse("api_documentation", args=["does-not-exist"])
+        )
+
+        self.assertEqual(protected.status_code, 302)
+        self.assertEqual(missing.status_code, 404)

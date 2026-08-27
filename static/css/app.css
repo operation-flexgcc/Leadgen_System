@@ -239,6 +239,36 @@ textarea.form-control { resize: vertical; }
 .api-docs-copy h3 { margin: 22px 0 7px; }
 .api-docs-copy h3:first-child { margin-top: 0; }
 .api-docs-copy pre { max-width: 100%; margin: 10px 0 18px; padding: 15px; overflow-x: auto; border-radius: 8px; color: #e8fff6; background: #16372b; font: .76rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.api-guide-index { margin-bottom: 18px; }
+.api-guide-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 20px; }
+.api-guide-card { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; padding: 19px; border: 1px solid var(--line); border-radius: 11px; color: var(--ink); background: var(--soft); }
+.api-guide-card:hover { border-color: #99c7b5; background: var(--green-soft); }
+.api-guide-card h3 { margin: 10px 0 6px; }
+.api-guide-card p { flex: 1; margin: 0 0 12px; color: var(--muted); font-size: .82rem; }
+.api-guide-card code { max-width: 100%; overflow-wrap: anywhere; color: var(--green-dark); font-size: .72rem; }
+.api-guide-card > strong { margin-top: 15px; color: var(--green); font-size: .78rem; }
+.api-method { padding: 4px 7px; border-radius: 5px; color: white; background: var(--green); font-size: .62rem; font-weight: 850; letter-spacing: .06em; }
+.api-doc-heading { margin-bottom: 18px; }
+.api-doc-nav { display: flex; gap: 8px; margin-bottom: 18px; overflow-x: auto; }
+.api-doc-nav a { flex: 0 0 auto; padding: 9px 13px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: white; font-size: .77rem; font-weight: 750; }
+.api-doc-nav a[aria-current="page"] { border-color: var(--green); color: white; background: var(--green); }
+.api-contract-panel { margin-bottom: 18px; }
+.api-contract-summary { display: grid; grid-template-columns: 160px 230px minmax(0, 1fr); gap: 1px; border-bottom: 1px solid var(--line); background: var(--line); }
+.api-contract-summary > div { min-width: 0; padding: 15px 20px; background: var(--soft); }
+.api-contract-summary span, .api-contract-summary strong { display: block; }
+.api-contract-summary span { margin-bottom: 5px; color: var(--muted); font-size: .66rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+.api-contract-summary strong { font-size: .86rem; }
+.api-contract-summary code { overflow-wrap: anywhere; color: var(--green-dark); font-size: .76rem; }
+.api-doc-intro { padding-top: 8px; }
+.api-field-table { min-width: 900px; }
+.api-field-table td { vertical-align: top; }
+.api-field-table td:first-child code { color: var(--green-dark); font-weight: 750; }
+.api-field-table p { margin: 0 0 8px; }
+.api-field-example { display: block; color: var(--muted); font-size: .74rem; }
+.api-choice-list { display: grid; gap: 5px; margin-top: 12px; padding: 11px; border-radius: 7px; background: var(--soft); }
+.api-choice-list strong { margin-bottom: 2px; font-size: .7rem; text-transform: uppercase; }
+.api-choice-list span { font-size: .74rem; }
+.api-rule-list { display: grid; gap: 8px; margin: 0; padding-left: 20px; }
 
 .user-metrics { grid-template-columns: repeat(3, 1fr); }
 .user-metrics .metric-card { min-height: 128px; }
@@ -300,6 +330,8 @@ textarea.form-control { resize: vertical; }
     .detail-layout { grid-template-columns: 1fr; }
     .detail-sidebar { position: static; grid-row: 1; }
     .form-section { grid-template-columns: 1fr; }
+    .api-contract-summary { grid-template-columns: 1fr 1fr; }
+    .api-contract-endpoint { grid-column: 1 / -1; }
 }
 
 @media (max-width: 600px) {
@@ -318,4 +350,7 @@ textarea.form-control { resize: vertical; }
     .login-card { padding: 30px 24px; }
     .table-wrap { margin-right: -1px; }
     th, td { padding: 13px 12px; }
+    .api-guide-grid { grid-template-columns: 1fr; padding: 15px; }
+    .api-contract-summary { grid-template-columns: 1fr; }
+    .api-contract-endpoint { grid-column: auto; }
 }

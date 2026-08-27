@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}{{ documentation.title }} · FlexGCC Outreach{% endblock %}
+{% block content %}
+<section class="page-heading api-doc-heading">
+    <a class="back-link" href="{% url 'api_access' %}">← API access</a>
+    <p class="eyebrow">Prospect workflow API</p>
+    <h1>{{ documentation.title }}</h1>
+    <p>{{ documentation.summary }}</p>
+</section>
+
+<nav class="api-doc-nav" aria-label="Prospect workflow API guides">
+    {% for item in workflow_api_docs %}
+    <a href="{% url 'api_documentation' item.slug %}" {% if item.slug == documentation.slug %}aria-current="page"{% endif %}>{{ item.nav_label }}</a>
+    {% endfor %}
+</nav>
+
+<section class="panel api-docs-panel api-contract-panel">
+    <div class="panel-header">
+        <div><h2>Endpoint contract</h2><p>Read the current section with GET or update supplied fields with PATCH.</p></div>
+    </div>
+    <div class="api-contract-summary">
+        <div><span>Methods</span><strong>GET, PATCH</strong></div>
+        <div><span>Authentication</span><strong>Bearer access token</strong></div>
+        <div class="api-contract-endpoint"><span>Endpoint</span><code>{{ documentation.endpoint }}</code></div>
+    </div>
+    <div class="api-docs-copy api-doc-intro">
+        <h3>Authorization</h3>
+        <p>Send <code>Authorization: Bearer &lt;access_token&gt;</code>. Managers and system administrators can access every prospect. A sales intern, inside-sales user, or LinkedIn-outreach user must own the exact prospect. Unassigned or another user's prospect returns HTTP 403.</p>
+        <p>PATCH accepts a JSON object. Send only fields that should change; omitted fields retain their values. Every successful PATCH creates a prospect update audit containing the authenticated user, previous values, changed values, and timestamp.</p>
+    </div>
+</section>
+
+<section class="panel api-docs-panel">
+    <div class="panel-header">
+        <div><h2>Input fields</h2><p>Names and values are case-sensitive.</p></div>
+    </div>
+    <div class="table-wrap">
+        <table class="api-field-table">
+            <thead>
+                <tr><th>Field</th><th>Type</th><th>Required</th><th>Description and sample</th></tr>
+            </thead>
+            <tbody>
+                {% for field in documentation.fields %}
+                <tr>
+                    <td><code>{{ field.name }}</code></td>
+                    <td>{{ field.type }}</td>
+                    <td>{{ field.required }}</td>
+                    <td>
+                        <p>{{ field.description }}</p>
+                        <span class="api-field-example">Example: <code>{{ field.example }}</code></span>
+                        {% if field.choices %}
+                        <div class="api-choice-list">
+                            <strong>Accepted values</strong>
+                            {% for choice in field.choices %}
+                            <span><code>{% if choice.value %}{{ choice.value }}{% else %}""{% endif %}</code> — {{ choice.label }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel api-docs-panel">
+    <div class="panel-header">
+        <div><h2>Validation rules</h2><p>The API returns precise field_errors when a rule fails.</p></div>
+    </div>
+    <div class="api-docs-copy">
+        <ul class="api-rule-list">
+            {% for rule in documentation.rules %}<li>{{ rule }}</li>{% endfor %}
+        </ul>
+    </div>
+</section>
+
+<section class="panel api-docs-panel">
+    <div class="panel-header">
+        <div><h2>Executable examples</h2><p>Replace the prospect ID and access token before running.</p></div>
+    </div>
+    <div class="api-docs-copy">
+        <h3>JSON request body</h3>
+        <pre>{{ documentation.request_example }}</pre>
+        <h3>curl</h3>
+        <pre>{{ documentation.curl_example }}</pre>
+        <h3>Read the current values</h3>
+        <pre>curl --request GET \
+  --url 'https://leadgen.flexgcc.com{{ documentation.endpoint }}' \
+  --header 'Authorization: Bearer &lt;access_token&gt;'</pre>
+        <p>Replace <code>&lt;prospect_id&gt;</code> in the GET URL with the numeric prospect ID.</p>
+    </div>
+</section>
+
+<section class="panel api-docs-panel">
+    <div class="panel-header">
+        <div><h2>Responses</h2><p>All API responses use JSON and Cache-Control: no-store.</p></div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+            <tbody>
+                <tr><td><code>200</code></td><td>GET succeeded or PATCH was validated, saved, and audited.</td></tr>
+                <tr><td><code>400</code></td><td>Malformed JSON, unsupported field, invalid type/value, or a workflow validation rule failed.</td></tr>
+                <tr><td><code>401</code></td><td>The bearer token is missing, invalid, revoked, or belongs to an inactive user.</td></tr>
+                <tr><td><code>403</code></td><td>The token user does not own this prospect and is not a manager or system administrator.</td></tr>
+                <tr><td><code>404</code></td><td>The numeric prospect ID does not exist.</td></tr>
+                <tr><td><code>405</code></td><td>The endpoint received a method other than GET or PATCH.</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -9,6 +9,11 @@ urlpatterns = [
     path("companies/export/<str:file_format>/", views.company_export, name="company_export"),
     path("api-access/", api.api_access, name="api_access"),
     path(
+        "api-access/docs/<slug:slug>/",
+        api.api_documentation_page,
+        name="api_documentation",
+    ),
+    path(
         "api-access/tokens/<int:pk>/revoke/",
         api.revoke_access_token,
         name="api_access_token_revoke",
@@ -17,6 +22,26 @@ urlpatterns = [
     path("api/v1/companies/<uuid:company_id>/", api.company_detail, name="api_company_detail"),
     path("api/v1/companies/<uuid:company_id>/claim/", api.company_claim, name="api_company_claim"),
     path("api/v1/prospects/<int:prospect_id>/", api.prospect_detail, name="api_prospect_detail"),
+    path(
+        "api/v1/prospects/<int:prospect_id>/prospect-sent/",
+        api.prospect_sent,
+        name="api_prospect_sent",
+    ),
+    path(
+        "api/v1/prospects/<int:prospect_id>/founder-linkedin/",
+        api.founder_linkedin,
+        name="api_founder_linkedin",
+    ),
+    path(
+        "api/v1/prospects/<int:prospect_id>/interest-handoff/",
+        api.interest_handoff,
+        name="api_interest_handoff",
+    ),
+    path(
+        "api/v1/prospects/<int:prospect_id>/follow-up/",
+        api.follow_up,
+        name="api_follow_up",
+    ),
     path("prospects/new/", views.prospect_create, name="prospect_create"),
     path("prospects/<int:pk>/", views.prospect_detail, name="prospect_detail"),
     path("prospects/<int:pk>/edit/", views.prospect_update, name="prospect_update"),

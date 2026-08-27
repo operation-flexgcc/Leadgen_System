@@ -83,27 +83,33 @@ Content-Type: application/json
 
 `GET` on the same URL returns the company details. Managers and system administrators can read or update every company. Frontline users must own the prospect for their workstream. Each successful update is stored with the authenticated user, prior values, new values, and timestamp.
 
-The company response includes a `prospects` list containing the prospect ID and workstream for each company record. Use the prospect ID to update workflow-specific details without changing the records in other workstreams:
+The company response includes a `prospects` list containing the prospect ID and workstream for each company record. Use that numeric prospect ID with one of the purpose-specific workflow APIs:
+
+| Workflow | Methods | Endpoint | Fields |
+|---|---|---|---|
+| Prospect sent | `GET`, `PATCH` | `/api/v1/prospects/<prospect_id>/prospect-sent/` | `prospect_sent` |
+| Founder LinkedIn | `GET`, `PATCH` | `/api/v1/prospects/<prospect_id>/founder-linkedin/` | `founder_account`, `linkedin_connection_status`, `personalization_note`, `founder_escalation_required`, `founder_escalation_notes` |
+| Interest and handoff | `GET`, `PATCH` | `/api/v1/prospects/<prospect_id>/interest-handoff/` | `material_shared`, `interest_signal`, `questions_for_founders` |
+| Follow-up | `GET`, `PATCH` | `/api/v1/prospects/<prospect_id>/follow-up/` | `status`, `next_action`, `next_action_date`, `comments`, and conditional meeting fields |
+
+For example:
 
 ```http
-PATCH /api/v1/prospects/<prospect_id>/
+PATCH /api/v1/prospects/<prospect_id>/follow-up/
 Authorization: Bearer <access_token>
 Content-Type: application/json
 
 {
-  "founder_account": "kandarp_soni",
-  "linkedin_connection_status": "request_sent",
-  "personalization_note": "...",
-  "founder_escalation_required": false,
-  "founder_escalation_notes": "",
-  "prospect_sent": true,
-  "is_not_eligible": false
+  "status": "meeting_to_be_scheduled",
+  "next_action": "Send three meeting slots",
+  "next_action_date": "2026-09-15",
+  "comments": "Prospect prefers morning US Central time."
 }
 ```
 
-`GET` on the same prospect URL returns the current workflow fields. Founder fields apply only to LinkedIn outreach prospects. Valid `founder_account` values are `kandarp_soni`, `sunit_kala`, or an empty string. Valid `linkedin_connection_status` values are `not_sent`, `request_sent`, `accepted`, `declined`, or an empty string. Boolean fields require JSON `true` or `false`. Send only the fields you want to change.
+The in-app `/api-access/` page links to a separate guide for each API with every input type, conditional requirement, exact dropdown value, validation rule, and executable `curl` example. The general `/api/v1/prospects/<prospect_id>/` endpoint remains available for backward compatibility.
 
-Managers and system administrators can read or update any prospect. A frontline user must own the exact prospect. Each successful workflow update is audited separately with the authenticated user, prior values, new values, and timestamp. The `prospect_sent` and `is_not_eligible` flags do not silently change stage or status.
+Managers and system administrators can read or update any prospect. A frontline user must own the exact prospect. Each successful workflow update is audited separately with the authenticated user, prior values, new values, and timestamp. Founder LinkedIn fields apply only to LinkedIn outreach prospects. Founder escalation can be enabled only after the invitation is accepted and a prospect response or interest signal is recorded. The `prospect_sent` and `is_not_eligible` flags do not silently change stage or status.
 
 Claim the prospect for the token user's own workstream with:
 
