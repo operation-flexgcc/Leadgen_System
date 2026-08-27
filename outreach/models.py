@@ -147,6 +147,14 @@ class Prospect(models.Model):
     meeting_scheduled_at = models.DateTimeField(null=True, blank=True)
     meeting_timezone = models.CharField(max_length=80, blank=True)
     meeting_participants = models.CharField(max_length=500, blank=True)
+    import_batch = models.ForeignKey(
+        "ProspectImportBatch",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="prospects",
+        editable=False,
+    )
     import_source = models.CharField(max_length=120, blank=True)
     import_key = models.CharField(max_length=300, blank=True)
     comments = models.TextField(blank=True)
@@ -382,3 +390,49 @@ class ProspectUpdateAudit(models.Model):
 
     def __str__(self):
         return f"Prospect {self.prospect_id} updated by {self.modified_by}"
+
+
+class ProspectImportBatch(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Imported"
+        PARTIALLY_ROLLED_BACK = "partially_rolled_back", "Partially rolled back"
+        ROLLED_BACK = "rolled_back", "Rolled back"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="prospect_import_batches",
+    )
+    source_filename = models.CharField(max_length=255)
+    target_workstream = models.CharField(max_length=30, choices=Prospect.Workstream.choices)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="assigned_prospect_import_batches",
+    )
+    total_rows = models.PositiveIntegerField(default=0)
+    created_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(default=0)
+    skipped_rows = models.JSONField(default=list)
+    created_rows = models.JSONField(default=list)
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.ACTIVE)
+    rolled_back_count = models.PositiveIntegerField(default=0)
+    rollback_skipped_rows = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    rolled_back_at = models.DateTimeField(null=True, blank=True)
+    rolled_back_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="rolled_back_prospect_import_batches",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.source_filename} imported by {self.uploaded_by}"

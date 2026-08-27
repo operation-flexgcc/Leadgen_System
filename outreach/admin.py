@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import CompanyUpdateAudit, Outreach, Profile, Prospect, ProspectUpdateAudit
+from .models import (
+    CompanyUpdateAudit,
+    Outreach,
+    Profile,
+    Prospect,
+    ProspectImportBatch,
+    ProspectUpdateAudit,
+)
 
 
 @admin.register(Profile)
@@ -73,6 +80,48 @@ class ProspectUpdateAuditAdmin(admin.ModelAdmin):
         "previous_values",
         "changed_values",
         "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProspectImportBatch)
+class ProspectImportBatchAdmin(admin.ModelAdmin):
+    list_display = (
+        "source_filename",
+        "uploaded_by",
+        "target_workstream",
+        "created_count",
+        "skipped_count",
+        "status",
+        "created_at",
+    )
+    list_filter = ("target_workstream", "status", "created_at")
+    search_fields = ("source_filename", "uploaded_by__email")
+    readonly_fields = (
+        "id",
+        "uploaded_by",
+        "source_filename",
+        "target_workstream",
+        "owner",
+        "total_rows",
+        "created_count",
+        "skipped_count",
+        "skipped_rows",
+        "created_rows",
+        "status",
+        "rolled_back_count",
+        "rollback_skipped_rows",
+        "created_at",
+        "rolled_back_at",
+        "rolled_back_by",
     )
 
     def has_add_permission(self, request):

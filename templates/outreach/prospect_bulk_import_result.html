@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}CSV ingestion result · FlexGCC Outreach{% endblock %}
+{% block content %}
+<section class="page-heading heading-with-action">
+    <div>
+        <a class="back-link" href="{% url 'prospect_bulk_import' %}">← Import another CSV</a>
+        <p class="eyebrow">Bulk ingestion result</p>
+        <h1>{{ batch.source_filename }}</h1>
+        <p>Imported {{ batch.created_at|date:"j M Y, H:i" }} by {{ batch.uploaded_by.get_full_name|default:batch.uploaded_by.email }}.</p>
+    </div>
+    <a class="button-secondary" href="{% url 'dashboard' %}">View dashboard</a>
+</section>
+
+<section class="import-summary-grid" aria-label="Import summary">
+    <div><span>CSV rows</span><strong>{{ batch.total_rows }}</strong></div>
+    <div class="summary-created"><span>Added</span><strong>{{ batch.created_count }}</strong></div>
+    <div class="summary-skipped"><span>Ignored</span><strong>{{ batch.skipped_count }}</strong></div>
+    <div><span>Current status</span><strong>{{ batch.get_status_display }}</strong></div>
+</section>
+
+<section class="panel import-details-panel">
+    <div class="panel-header">
+        <div>
+            <h2>Batch details</h2>
+            <p>Only this batch is affected by its rollback.</p>
+        </div>
+    </div>
+    <dl class="import-batch-details">
+        <div><dt>Workstream</dt><dd>{{ batch.get_target_workstream_display }}</dd></div>
+        <div><dt>Owner</dt><dd>{% if batch.owner %}{{ batch.owner.get_full_name|default:batch.owner.email }}{% else %}Unassigned role queue{% endif %}</dd></div>
+        <div><dt>Remaining prospects</dt><dd>{{ remaining_count }}</dd></div>
+        <div><dt>Rolled back</dt><dd>{{ batch.rolled_back_count }}</dd></div>
+    </dl>
+</section>
+
+{% if can_rollback %}
+<section class="rollback-card">
+    <div>
+        <p class="eyebrow eyebrow-danger">Undo this ingestion</p>
+        <h2>Roll back imported prospects</h2>
+        <p>This removes only unchanged prospects created by this batch. Prospects edited or used for outreach/API activity are protected and will be listed.</p>
+    </div>
+    <form method="post" action="{% url 'prospect_bulk_import_rollback' batch.pk %}" onsubmit="return confirm('Roll back the unchanged prospects created by this CSV ingestion?');">
+        {% csrf_token %}
+        <button class="button-danger" type="submit">Roll back this batch</button>
+    </form>
+</section>
+{% elif batch.status == "rolled_back" %}
+<section class="rollback-complete">This import batch has been fully rolled back.</section>
+{% endif %}
+
+<section class="panel import-result-panel">
+    <div class="panel-header">
+        <div>
+            <h2>Added rows</h2>
+            <p>{{ batch.created_count }} row{{ batch.created_count|pluralize }} passed validation at ingestion.</p>
+        </div>
+    </div>
+    {% if created_rows %}
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>CSV row</th><th>Company Name</th><th>Website</th><th>Area</th><th>Current record</th></tr></thead>
+            <tbody>
+                {% for row in created_rows %}
+                <tr>
+                    <td>{{ row.row_number }}</td>
+                    <td>{{ row.company_name }}</td>
+                    <td><a href="{{ row.website }}" target="_blank" rel="noopener">{{ row.website }}</a></td>
+                    <td>{{ row.area }}</td>
+                    <td>{% if row.prospect %}<a href="{% url 'prospect_detail' row.prospect.pk %}">Prospect #{{ row.prospect.pk }}</a>{% else %}<span class="badge badge-rolled-back">Removed</span>{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-inline">No rows were added.</div>
+    {% endif %}
+</section>
+
+<section class="panel import-result-panel">
+    <div class="panel-header">
+        <div>
+            <h2>Ignored rows</h2>
+            <p>{{ batch.skipped_count }} row{{ batch.skipped_count|pluralize }} did not enter the database.</p>
+        </div>
+    </div>
+    {% if batch.skipped_rows %}
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>CSV row</th><th>Company Name</th><th>Website</th><th>Area</th><th>Reason</th></tr></thead>
+            <tbody>
+                {% for row in batch.skipped_rows %}
+                <tr>
+                    <td>{{ row.row_number }}</td>
+                    <td>{{ row.company_name|default:"—" }}</td>
+                    <td>{{ row.website|default:"—" }}</td>
+                    <td>{{ row.area|default:"—" }}</td>
+                    <td class="import-reason">{{ row.reason }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-inline">No rows were ignored.</div>
+    {% endif %}
+</section>
+
+{% if batch.rollback_skipped_rows %}
+<section class="panel import-result-panel protected-result-panel">
+    <div class="panel-header">
+        <div>
+            <h2>Protected during rollback</h2>
+            <p>These records remain because work occurred after ingestion.</p>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>CSV row</th><th>Prospect</th><th>Website</th><th>Reason</th></tr></thead>
+            <tbody>
+                {% for row in batch.rollback_skipped_rows %}
+                <tr>
+                    <td>{{ row.row_number }}</td>
+                    <td><a href="{% url 'prospect_detail' row.prospect_id %}">{{ row.company_name }}</a></td>
+                    <td>{{ row.website }}</td>
+                    <td class="import-reason">{{ row.reason }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+{% endblock %}

@@ -16,8 +16,19 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
-from .forms import DashboardFilterForm, OutreachForm, ProspectForm, UserProvisionForm
-from .models import Outreach, Profile, Prospect
+from .bulk_import import (
+    BulkImportFileError,
+    import_prospects_from_csv,
+    rollback_prospect_import,
+)
+from .forms import (
+    BulkProspectImportForm,
+    DashboardFilterForm,
+    OutreachForm,
+    ProspectForm,
+    UserProvisionForm,
+)
+from .models import Outreach, Profile, Prospect, ProspectImportBatch
 from .permissions import is_manager, is_system_admin
 
 
@@ -273,6 +284,111 @@ def prospect_create(request):
         messages.success(request, f"{prospect.company_name} was added.")
         return redirect(prospect)
     return render(request, "outreach/prospect_form.html", {"form": form, "title": "Add prospect"})
+
+
+def _get_scoped_import_batch(user, batch_id):
+    batches = ProspectImportBatch.objects.select_related(
+        "uploaded_by",
+        "owner",
+        "rolled_back_by",
+    )
+    if not is_manager(user):
+        batches = batches.filter(uploaded_by=user)
+    return get_object_or_404(batches, pk=batch_id)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def prospect_bulk_import(request):
+    form = BulkProspectImportForm(
+        request.POST or None,
+        request.FILES or None,
+        user=request.user,
+    )
+    if request.method == "POST" and form.is_valid():
+        try:
+            batch = import_prospects_from_csv(
+                uploaded_file=form.cleaned_data["csv_file"],
+                uploaded_by=request.user,
+                workstream=form.cleaned_data["workstream"],
+                owner=form.cleaned_data["owner"],
+            )
+        except BulkImportFileError as error:
+            form.add_error("csv_file", str(error))
+        else:
+            messages.success(
+                request,
+                f"CSV ingestion completed: {batch.created_count} added and "
+                f"{batch.skipped_count} ignored.",
+            )
+            return redirect("prospect_bulk_import_result", batch_id=batch.pk)
+    recent_batches = ProspectImportBatch.objects.select_related("owner", "uploaded_by")
+    if not is_manager(request.user):
+        recent_batches = recent_batches.filter(uploaded_by=request.user)
+    response = render(
+        request,
+        "outreach/prospect_bulk_import.html",
+        {
+            "form": form,
+            "recent_batches": recent_batches[:10],
+        },
+    )
+    response["Cache-Control"] = "private, no-store"
+    return response
+
+
+@login_required
+@require_http_methods(["GET"])
+def prospect_bulk_import_result(request, batch_id):
+    batch = _get_scoped_import_batch(request.user, batch_id)
+    current_by_id = {
+        prospect.pk: prospect
+        for prospect in batch.prospects.select_related("owner").order_by("company_name")
+    }
+    created_rows = []
+    for snapshot in batch.created_rows:
+        row = dict(snapshot)
+        row["prospect"] = current_by_id.get(snapshot["prospect_id"])
+        created_rows.append(row)
+    response = render(
+        request,
+        "outreach/prospect_bulk_import_result.html",
+        {
+            "batch": batch,
+            "created_rows": created_rows,
+            "remaining_count": len(current_by_id),
+            "can_rollback": bool(current_by_id)
+            and batch.status != ProspectImportBatch.Status.ROLLED_BACK,
+        },
+    )
+    response["Cache-Control"] = "private, no-store"
+    return response
+
+
+@login_required
+@require_POST
+def prospect_bulk_import_rollback(request, batch_id):
+    batch = _get_scoped_import_batch(request.user, batch_id)
+    if batch.status == ProspectImportBatch.Status.ROLLED_BACK:
+        messages.info(request, "This import batch has already been rolled back.")
+        return redirect("prospect_bulk_import_result", batch_id=batch.pk)
+
+    batch, removed_count, protected_rows = rollback_prospect_import(
+        batch_id=batch.pk,
+        rolled_back_by=request.user,
+    )
+    if protected_rows:
+        messages.warning(
+            request,
+            f"Rollback removed {removed_count} prospect(s). "
+            f"{len(protected_rows)} modified or active prospect(s) were protected.",
+        )
+    else:
+        messages.success(
+            request,
+            f"Rollback completed. {removed_count} imported prospect(s) were removed.",
+        )
+    return redirect("prospect_bulk_import_result", batch_id=batch.pk)
 
 
 @login_required

@@ -6,6 +6,7 @@ from allauth.account.models import EmailAddress
 from django.db.models import Q
 from django.utils import timezone
 
+from .bulk_import import MAX_CSV_SIZE_BYTES
 from .models import Outreach, Profile, Prospect
 from .permissions import is_manager
 
@@ -215,6 +216,78 @@ class ProspectForm(forms.ModelForm):
         if commit:
             prospect.save()
         return prospect
+
+
+class BulkProspectImportForm(forms.Form):
+    csv_file = forms.FileField(
+        label="Prospect CSV",
+        help_text="UTF-8 CSV, maximum 5 MB. Required columns: Company Name, Website, Area.",
+        widget=forms.ClearableFileInput(
+            attrs={"accept": ".csv,text/csv", "class": "form-control"}
+        ),
+    )
+    workstream = forms.ChoiceField(
+        choices=Prospect.Workstream.choices,
+        label="Target workstream",
+    )
+    owner = forms.ModelChoiceField(
+        queryset=get_user_model().objects.none(),
+        required=False,
+        label="Assigned outreach user",
+        widget=OperatorSelect(),
+        help_text="Leave unassigned to add the imported prospects to the selected role queue.",
+    )
+
+    def __init__(self, *args, user, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        if is_manager(user):
+            self.fields["owner"].queryset = (
+                get_user_model()
+                .objects.filter(
+                    profile__role__in=Prospect.Workstream.values,
+                    is_active=True,
+                )
+                .select_related("profile")
+                .order_by("first_name", "email")
+            )
+            self.fields["owner"].empty_label = "Unassigned role queue"
+            self.fields["owner"].label_from_instance = lambda operator: (
+                f"{operator.get_full_name() or operator.email} - "
+                f"{operator.profile.get_role_display()}"
+            )
+        else:
+            self.fields.pop("owner")
+            self.fields["workstream"].widget = forms.HiddenInput()
+            self.fields["workstream"].initial = user.profile.role
+
+        for field in self.fields.values():
+            field.widget.attrs.setdefault("class", "form-control")
+
+    def clean_csv_file(self):
+        uploaded_file = self.cleaned_data["csv_file"]
+        if not uploaded_file.name.lower().endswith(".csv"):
+            raise forms.ValidationError("Upload a file with a .csv extension.")
+        if uploaded_file.size == 0:
+            raise forms.ValidationError("The CSV is empty.")
+        if uploaded_file.size > MAX_CSV_SIZE_BYTES:
+            raise forms.ValidationError("The CSV must be 5 MB or smaller.")
+        return uploaded_file
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if not is_manager(self.user):
+            cleaned_data["workstream"] = self.user.profile.role
+            cleaned_data["owner"] = self.user
+
+        workstream = cleaned_data.get("workstream")
+        owner = cleaned_data.get("owner")
+        if owner and workstream and owner.profile.role != workstream:
+            self.add_error(
+                "owner",
+                "Choose an outreach user whose class matches the target workstream.",
+            )
+        return cleaned_data
 
 
 class OutreachForm(forms.ModelForm):

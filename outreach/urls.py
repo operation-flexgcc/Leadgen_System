@@ -42,6 +42,17 @@ urlpatterns = [
         api.follow_up,
         name="api_follow_up",
     ),
+    path("prospects/import/", views.prospect_bulk_import, name="prospect_bulk_import"),
+    path(
+        "prospects/imports/<uuid:batch_id>/",
+        views.prospect_bulk_import_result,
+        name="prospect_bulk_import_result",
+    ),
+    path(
+        "prospects/imports/<uuid:batch_id>/rollback/",
+        views.prospect_bulk_import_rollback,
+        name="prospect_bulk_import_rollback",
+    ),
     path("prospects/new/", views.prospect_create, name="prospect_create"),
     path("prospects/<int:pk>/", views.prospect_detail, name="prospect_detail"),
     path("prospects/<int:pk>/edit/", views.prospect_update, name="prospect_update"),

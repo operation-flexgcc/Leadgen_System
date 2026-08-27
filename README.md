@@ -13,6 +13,7 @@ FlexGCC Outreach is a Google-authenticated partner-outreach tracker for sales in
 - Immutable system-generated company UUIDs shared across that company's workstream records.
 - Role-scoped company downloads in CSV and formatted XLSX with `ID`, `Name`, `Location`, and `URL` columns.
 - Rotating API credentials, audited company-detail updates, and atomic prospect claiming by company ID.
+- Auditable bulk prospect ingestion from three-column CSV files, with row-level validation, duplicate reporting, recent-batch history, and safe batch rollback.
 - Google OAuth login with exact-email pre-provisioning and optional Google-domain restriction.
 - Five extensible user classes:
 
@@ -44,6 +45,18 @@ python manage.py import_target_firms --apply --created-by-email admin@flexgcc.co
 Frontline users see unassigned prospects only in their own user class. They claim a prospect, complete company/contact research, and save it as Eligible before the app permits outreach. Managers can assign unassigned prospects directly from the edit screen. The manual **Import target firms** GitHub workflow runs the same command against production.
 
 The migration assigns one company UUID to all existing records with the same normalized website domain. The ID remains stable even when company details are later updated.
+
+## Bulk prospect ingestion
+
+Open **Add prospect → Upload prospect CSV** or use **Import CSV** on the dashboard. The UTF-8 CSV must contain exactly these columns in order:
+
+```csv
+Company Name,Website,Area
+```
+
+Valid rows are created at the **Research required** stage. Frontline users import into their own workstream and ownership; managers and system administrators choose a workstream and may leave the batch unassigned or select a matching outreach user. Rows are ignored individually when required cells are blank, the company name or website domain is duplicated within the file or target workstream, the URL is invalid, the row has the wrong number of columns, or a value exceeds the model limit.
+
+The result page lists every added and ignored row and retains the batch in recent ingestion history. **Roll back this batch** removes only unchanged prospects created by that upload. Records edited or used for outreach/API activity are protected and listed instead of being destroyed.
 
 ## Company API
 

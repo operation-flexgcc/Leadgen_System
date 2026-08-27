@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Bulk import prospects · FlexGCC Outreach{% endblock %}
+{% block content %}
+<section class="page-heading">
+    <a class="back-link" href="{% url 'prospect_create' %}">← Add prospect</a>
+    <p class="eyebrow">Bulk ingestion</p>
+    <h1>Import prospects from CSV</h1>
+    <p>Upload a three-column file. Valid rows enter the Research stage; duplicate, incomplete, malformed, or invalid rows are ignored and listed in the result.</p>
+</section>
+
+<form method="post" enctype="multipart/form-data" class="record-form compact-form prospect-import-form" novalidate>
+    {% csrf_token %}
+    {% if form.workstream.is_hidden %}{{ form.workstream }}{% endif %}
+    {% if form.non_field_errors %}<div class="form-alert">{{ form.non_field_errors }}</div>{% endif %}
+
+    <section class="form-section">
+        <div class="form-section-heading">
+            <span>01</span>
+            <div>
+                <h2>CSV file</h2>
+                <p>The header names and order must match exactly.</p>
+            </div>
+        </div>
+        <div class="form-grid">
+            <div class="field field-full">{% include "outreach/field.html" with field=form.csv_file %}</div>
+        </div>
+        <div class="csv-schema-example" aria-label="Required CSV columns">
+            <strong>Required columns</strong>
+            <code>Company Name</code>
+            <code>Website</code>
+            <code>Area</code>
+        </div>
+    </section>
+
+    <section class="form-section">
+        <div class="form-section-heading">
+            <span>02</span>
+            <div>
+                <h2>Assignment</h2>
+                <p>{% if current_user_is_manager %}Choose the role queue and optionally assign one matching outreach user.{% else %}Imported prospects will be assigned to you in your current user class.{% endif %}</p>
+            </div>
+        </div>
+        <div class="form-grid">
+            {% if not form.workstream.is_hidden %}
+            <div class="field">{% include "outreach/field.html" with field=form.workstream %}</div>
+            {% endif %}
+            {% if form.owner %}
+            <div class="field">{% include "outreach/field.html" with field=form.owner %}</div>
+            {% endif %}
+        </div>
+    </section>
+
+    <section class="import-behavior-note">
+        <h2>What the ingestion checks</h2>
+        <ul>
+            <li>Blank cells in any required column.</li>
+            <li>Duplicate company names or website domains within this file.</li>
+            <li>Duplicate company names or website domains already in the target workstream.</li>
+            <li>Invalid URLs, incorrect headers, extra columns, and oversized values.</li>
+        </ul>
+        <p>Ignored rows do not block valid rows. The result page lists every added and ignored row and provides a batch-specific rollback.</p>
+    </section>
+
+    <div class="form-footer">
+        <a class="button-secondary" href="{% url 'prospect_create' %}">Cancel</a>
+        <button class="button" type="submit">Ingest CSV</button>
+    </div>
+</form>
+
+{% if recent_batches %}
+<section class="panel recent-imports-panel">
+    <div class="panel-header">
+        <div>
+            <h2>Recent CSV ingestions</h2>
+            <p>Reopen a result to review ignored rows or roll back that batch.</p>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Uploaded</th><th>File</th><th>Workstream</th><th>Added</th><th>Ignored</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+                {% for batch in recent_batches %}
+                <tr>
+                    <td>{{ batch.created_at|date:"j M Y, H:i" }}</td>
+                    <td>{{ batch.source_filename }}</td>
+                    <td>{{ batch.get_target_workstream_display }}</td>
+                    <td>{{ batch.created_count }}</td>
+                    <td>{{ batch.skipped_count }}</td>
+                    <td>{{ batch.get_status_display }}</td>
+                    <td><a href="{% url 'prospect_bulk_import_result' batch.pk %}">Open result →</a></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
+{% endblock %}
