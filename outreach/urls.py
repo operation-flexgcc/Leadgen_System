@@ -42,6 +42,16 @@ urlpatterns = [
         api.follow_up,
         name="api_follow_up",
     ),
+    path(
+        "api/v1/prospects/<int:prospect_id>/outreaches/",
+        api.prospect_outreach_list,
+        name="api_prospect_outreach_list",
+    ),
+    path(
+        "api/v1/outreaches/<int:outreach_id>/",
+        api.outreach_detail,
+        name="api_outreach_detail",
+    ),
     path("prospects/import/", views.prospect_bulk_import, name="prospect_bulk_import"),
     path(
         "prospects/imports/<uuid:batch_id>/",

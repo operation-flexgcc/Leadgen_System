@@ -1,6 +1,6 @@
 import json
 
-from .models import Prospect
+from .models import Outreach, Prospect
 
 
 def _choice_values(choices):
@@ -19,6 +19,8 @@ API_DOCUMENTATION_ORDER = (
     "founder-linkedin",
     "interest-handoff",
     "follow-up",
+    "outreach-history-list-create",
+    "outreach-history-detail",
 )
 
 
@@ -248,6 +250,166 @@ API_DOCUMENTATION = {
             "meeting_scheduled_at, meeting_timezone, and meeting_participants are mandatory when status is meeting_scheduled.",
             "A meeting date-time without a UTC offset is rejected as ambiguous.",
             "GET returns only Follow-up fields and prospect identity.",
+        ],
+    },
+    "outreach-history-list-create": {
+        "slug": "outreach-history-list-create",
+        "nav_label": "Outreach list/create",
+        "title": "Outreach history list and create API",
+        "summary": "List a prospect's chronological outreach history or record the next outreach entry.",
+        "method_label": "GET · POST",
+        "methods": "GET, POST",
+        "contract_summary": "GET lists all outreach records for one prospect. POST validates and creates the next numbered record.",
+        "authorization": "Managers and system administrators can access every prospect. A frontline outreach user must own the exact prospect; an unassigned or another user's prospect returns HTTP 403.",
+        "behavior": "POST uses the same workstream, contact-method, LinkedIn sequence, date, research-completion, and five-record limit rules as the browser form. The server assigns sequence_number and recorded_by.",
+        "endpoint": "/api/v1/prospects/<prospect_id>/outreaches/",
+        "request_example": _json_example(
+            {
+                "activity_type": "follow_up",
+                "medium": "email",
+                "outreach_date": "2026-08-28",
+                "response": "Asked for the one-page overview.",
+            }
+        ),
+        "curl_example": """curl --request POST \\
+  --url 'https://leadgen.flexgcc.com/api/v1/prospects/123/outreaches/' \\
+  --header 'Authorization: Bearer <access_token>' \\
+  --header 'Content-Type: application/json' \\
+  --data '{"activity_type":"follow_up","medium":"email","outreach_date":"2026-08-28","response":"Asked for the one-page overview."}'""",
+        "read_curl_example": """curl --request GET \\
+  --url 'https://leadgen.flexgcc.com/api/v1/prospects/123/outreaches/' \\
+  --header 'Authorization: Bearer <access_token>'""",
+        "replacement_hint": "Replace the prospect ID and access token before running.",
+        "fields": [
+            {
+                "name": "activity_type",
+                "type": "string enum",
+                "required": "Required for POST.",
+                "description": "The outreach event. Standard and LinkedIn workstreams expose different subsets; unsupported values for the prospect's workstream are rejected.",
+                "example": '"follow_up"',
+                "choices": _choice_values(Outreach.ActivityType.choices),
+            },
+            {
+                "name": "medium",
+                "type": "string enum",
+                "required": "Required for POST.",
+                "description": "The channel used. The corresponding email, phone number, or LinkedIn profile must exist on the prospect. LinkedIn-outreach prospects must use linkedin.",
+                "example": '"email"',
+                "choices": _choice_values(Outreach.Medium.choices),
+            },
+            {
+                "name": "outreach_date",
+                "type": "ISO date string YYYY-MM-DD",
+                "required": "Required for POST.",
+                "description": "The calendar date when the outreach occurred. Future dates are rejected.",
+                "example": '"2026-08-28"',
+                "choices": [],
+            },
+            {
+                "name": "response",
+                "type": "string or null",
+                "required": "Optional for POST.",
+                "description": "The prospect's response or concise factual notes. Send an empty string or null when no response was received.",
+                "example": '"Asked for the one-page overview."',
+                "choices": [],
+            },
+        ],
+        "rules": [
+            "Complete required research before adding an outreach record.",
+            "A prospect can have no more than five outreach records; the API returns HTTP 409 at the limit.",
+            "sequence_number is read-only and automatically fills the first available number from 1 through 5.",
+            "recorded_by is read-only and is set from the bearer token user.",
+            "Phone, email, and LinkedIn outreach require the matching contact detail on the prospect.",
+            "LinkedIn connection and post-acceptance activities must follow the prospect's current connection state.",
+            "GET returns records ordered by sequence_number and includes display labels, recorder identity, and timestamps.",
+            "Outreach history cannot be deleted through the API.",
+        ],
+        "responses": [
+            {"status": "200", "meaning": "GET succeeded and returned the outreach list."},
+            {"status": "201", "meaning": "POST validated and created the next outreach record."},
+            {"status": "400", "meaning": "Malformed JSON, invalid input, incomplete research, or a workflow rule failed."},
+            {"status": "401", "meaning": "The bearer token is missing, invalid, revoked, or belongs to an inactive user."},
+            {"status": "403", "meaning": "The token user does not own this prospect and is not a manager or system administrator."},
+            {"status": "404", "meaning": "The numeric prospect ID does not exist."},
+            {"status": "409", "meaning": "Five records already exist or another create operation won the sequence-number race."},
+            {"status": "405", "meaning": "The endpoint received a method other than GET or POST."},
+        ],
+    },
+    "outreach-history-detail": {
+        "slug": "outreach-history-detail",
+        "nav_label": "Outreach detail",
+        "title": "Outreach history detail API",
+        "summary": "Retrieve one outreach record or correct its editable history fields without changing its identity or sequence.",
+        "method_label": "GET · PATCH",
+        "methods": "GET, PATCH",
+        "contract_summary": "GET retrieves one outreach record. PATCH updates only supplied editable fields and preserves omitted values.",
+        "authorization": "Managers and system administrators can access every outreach record. A frontline outreach user must own the exact parent prospect; otherwise the API returns HTTP 403.",
+        "behavior": "PATCH preserves outreach ID, prospect, sequence_number, and recorded_by. Every successful update records the authenticated modifier, previous values, changed values, and timestamp in an immutable API audit.",
+        "endpoint": "/api/v1/outreaches/<outreach_id>/",
+        "request_example": _json_example(
+            {
+                "outreach_date": "2026-08-27",
+                "response": "Corrected note: requested a short deck.",
+            }
+        ),
+        "curl_example": """curl --request PATCH \\
+  --url 'https://leadgen.flexgcc.com/api/v1/outreaches/456/' \\
+  --header 'Authorization: Bearer <access_token>' \\
+  --header 'Content-Type: application/json' \\
+  --data '{"outreach_date":"2026-08-27","response":"Corrected note: requested a short deck."}'""",
+        "read_curl_example": """curl --request GET \\
+  --url 'https://leadgen.flexgcc.com/api/v1/outreaches/456/' \\
+  --header 'Authorization: Bearer <access_token>'""",
+        "replacement_hint": "Replace the outreach ID and access token before running.",
+        "fields": [
+            {
+                "name": "activity_type",
+                "type": "string enum",
+                "required": "Optional in PATCH; at least one field is required.",
+                "description": "Correct the recorded activity type. The value must be available to the parent prospect's workstream.",
+                "example": '"follow_up"',
+                "choices": _choice_values(Outreach.ActivityType.choices),
+            },
+            {
+                "name": "medium",
+                "type": "string enum",
+                "required": "Optional in PATCH; at least one field is required.",
+                "description": "Correct the channel. The parent prospect must contain the matching contact detail; LinkedIn-outreach prospects must remain linkedin.",
+                "example": '"email"',
+                "choices": _choice_values(Outreach.Medium.choices),
+            },
+            {
+                "name": "outreach_date",
+                "type": "ISO date string YYYY-MM-DD",
+                "required": "Optional in PATCH; at least one field is required.",
+                "description": "Correct the historical outreach date. Future dates are rejected.",
+                "example": '"2026-08-27"',
+                "choices": [],
+            },
+            {
+                "name": "response",
+                "type": "string or null",
+                "required": "Optional in PATCH; at least one field is required.",
+                "description": "Correct the response or factual note. Send an empty string or null to clear it.",
+                "example": '"Corrected note: requested a short deck."',
+                "choices": [],
+            },
+        ],
+        "rules": [
+            "Send only fields that should change; omitted fields retain their current values.",
+            "id, prospect_id, sequence_number, recorded_by, created_at, and updated_at are response fields and cannot be supplied in PATCH.",
+            "Changing medium still requires the matching contact detail on the parent prospect.",
+            "LinkedIn-outreach records must keep medium=linkedin.",
+            "GET includes executable enum values and human-readable display labels in the response.",
+            "Outreach history cannot be deleted through the API.",
+        ],
+        "responses": [
+            {"status": "200", "meaning": "GET succeeded or PATCH was validated, saved, and audited."},
+            {"status": "400", "meaning": "Malformed JSON, unsupported field, invalid type/value, or a workflow validation rule failed."},
+            {"status": "401", "meaning": "The bearer token is missing, invalid, revoked, or belongs to an inactive user."},
+            {"status": "403", "meaning": "The token user does not own the parent prospect and is not a manager or system administrator."},
+            {"status": "404", "meaning": "The numeric outreach ID does not exist."},
+            {"status": "405", "meaning": "The endpoint received a method other than GET or PATCH."},
         ],
     },
 }

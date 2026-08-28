@@ -7,7 +7,9 @@ from allauth.socialaccount.models import SocialAccount, SocialLogin
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
+from django.db import connection
 from django.test import RequestFactory, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -687,6 +689,48 @@ class OutreachWorkflowTests(AppTestMixin, TestCase):
         )
         self.assertRedirects(response, self.prospect.get_absolute_url())
         self.assertEqual(self.prospect.outreaches.count(), 5)
+
+    def test_add_outreach_lock_query_does_not_join_nullable_owner(self):
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.post(
+                reverse("outreach_add", args=[self.prospect.pk]),
+                {
+                    "activity_type": Outreach.ActivityType.INITIAL_OUTREACH,
+                    "medium": Outreach.Medium.EMAIL,
+                    "outreach_date": timezone.localdate().isoformat(),
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.prospect.outreaches.count(), 1)
+        prospect_selects = [
+            query["sql"]
+            for query in queries.captured_queries
+            if 'FROM "outreach_prospect"' in query["sql"]
+            and query["sql"].lstrip().upper().startswith("SELECT")
+        ]
+        self.assertTrue(prospect_selects)
+        for prospect_select in prospect_selects:
+            self.assertNotIn('JOIN "auth_user"', prospect_select)
+
+    def test_frontline_user_cannot_edit_unassigned_prospect_outreach(self):
+        outreach = Outreach.objects.create(
+            prospect=self.prospect,
+            sequence_number=1,
+            activity_type=Outreach.ActivityType.INITIAL_OUTREACH,
+            medium=Outreach.Medium.EMAIL,
+            outreach_date=timezone.localdate(),
+            recorded_by=self.intern,
+        )
+        self.prospect.owner = None
+        self.prospect.save(update_fields=["owner"])
+
+        detail = self.client.get(self.prospect.get_absolute_url())
+        response = self.client.get(reverse("outreach_update", args=[outreach.pk]))
+
+        self.assertEqual(detail.status_code, 200)
+        self.assertNotContains(detail, reverse("outreach_update", args=[outreach.pk]))
+        self.assertEqual(response.status_code, 403)
 
     def test_medium_requires_matching_contact_detail(self):
         response = self.client.post(

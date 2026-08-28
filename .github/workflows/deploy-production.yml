@@ -139,7 +139,15 @@ jobs:
 
           debug_value="$(printf '%s' "${DJANGO_DEBUG:-}" | tr '[:upper:]' '[:lower:]')"
           if [[ "${debug_value}" != "false" && "${debug_value}" != "0" && "${debug_value}" != "no" && "${debug_value}" != "off" ]]; then
-            echo "WARNING: DJANGO_DEBUG must be False on the production server."
+            echo "Correcting DJANGO_DEBUG to False in the protected production environment."
+            if grep -Eq '^[[:space:]]*(export[[:space:]]+)?DJANGO_DEBUG=' "${ENV_FILE}"; then
+              sed -E -i \
+                's/^[[:space:]]*(export[[:space:]]+)?DJANGO_DEBUG=.*/DJANGO_DEBUG=False/' \
+                "${ENV_FILE}"
+            else
+              printf '\nDJANGO_DEBUG=False\n' >> "${ENV_FILE}"
+            fi
+            export DJANGO_DEBUG=False
           fi
 
           echo "Upgrading pip..."

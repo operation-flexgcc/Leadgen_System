@@ -61,14 +61,14 @@
 <section class="panel api-docs-panel api-guide-index">
     <div class="panel-header">
         <div>
-            <h2>Prospect workflow API guides</h2>
+            <h2>API guides</h2>
             <p>Each API has its own field contract, accepted values, validation rules, and executable request example.</p>
         </div>
     </div>
     <div class="api-guide-grid">
         {% for documentation in workflow_api_docs %}
         <a class="api-guide-card" href="{% url 'api_documentation' documentation.slug %}">
-            <span class="api-method">GET · PATCH</span>
+            <span class="api-method">{{ documentation.method_label|default:"GET · PATCH" }}</span>
             <h3>{{ documentation.title }}</h3>
             <p>{{ documentation.summary }}</p>
             <code>{{ documentation.endpoint }}</code>
@@ -113,7 +113,7 @@ Content-Type: application/json
 }</pre>
 
         <h3>General prospect workflow endpoint</h3>
-        <p>The existing general endpoint remains available for backward compatibility. New integrations should use the four purpose-specific APIs above so unsupported fields fail fast within the relevant workflow section.</p>
+        <p>The existing general endpoint remains available for backward compatibility. New integrations should use the purpose-specific APIs above so unsupported fields fail fast within the relevant workflow section.</p>
         <pre>PATCH /api/v1/prospects/&lt;prospect_id&gt;/
 Authorization: Bearer &lt;access_token&gt;
 Content-Type: application/json</pre>

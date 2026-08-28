@@ -27,6 +27,8 @@ from outreach.models import (
     ApiAccessToken,
     ApiRefreshToken,
     CompanyUpdateAudit,
+    Outreach,
+    OutreachUpdateAudit,
     Profile,
     Prospect,
     ProspectUpdateAudit,
@@ -870,6 +872,278 @@ class ProspectSectionApiTests(CompanyApiTestMixin, TestCase):
         )
 
 
+class OutreachHistoryApiTests(CompanyApiTestMixin, TestCase):
+    def setUp(self):
+        self.owner = self.make_user(
+            "history-owner@example.com",
+            Profile.Role.INTERN,
+            "Isha Intern",
+        )
+        self.other = self.make_user(
+            "history-other@example.com",
+            Profile.Role.INTERN,
+            "Omar Intern",
+        )
+        self.manager = self.make_user(
+            "history-manager@example.com",
+            Profile.Role.MANAGER,
+            "Meera Manager",
+        )
+        self.prospect = self.make_prospect(
+            self.owner,
+            "History Advisory",
+            "https://history-advisory.example.com",
+        )
+
+    def history_request(self, method, payload=None, *, user=None, prospect=None):
+        user = user or self.owner
+        prospect = prospect or self.prospect
+        return self.client.generic(
+            method,
+            reverse("api_prospect_outreach_list", args=[prospect.pk]),
+            data=json.dumps(payload) if payload is not None else "",
+            content_type="application/json",
+            HTTP_AUTHORIZATION=self.bearer(user),
+        )
+
+    def detail_request(self, method, outreach, payload=None, *, user=None):
+        user = user or self.owner
+        return self.client.generic(
+            method,
+            reverse("api_outreach_detail", args=[outreach.pk]),
+            data=json.dumps(payload) if payload is not None else "",
+            content_type="application/json",
+            HTTP_AUTHORIZATION=self.bearer(user),
+        )
+
+    def test_owner_creates_and_lists_history_without_nullable_owner_lock_join(self):
+        payload = {
+            "activity_type": Outreach.ActivityType.INITIAL_OUTREACH,
+            "medium": Outreach.Medium.EMAIL,
+            "outreach_date": timezone.localdate().isoformat(),
+            "response": "Asked for a one-page overview.",
+        }
+        with CaptureQueriesContext(connection) as queries:
+            created = self.history_request("POST", payload)
+
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertEqual(created.json()["outreach"]["sequence_number"], 1)
+        self.assertEqual(created.json()["outreach"]["recorded_by"]["email"], self.owner.email)
+        self.prospect.refresh_from_db()
+        self.assertEqual(self.prospect.stage, Prospect.Stage.RESPONDED)
+
+        prospect_selects = [
+            query["sql"]
+            for query in queries.captured_queries
+            if 'FROM "outreach_prospect"' in query["sql"]
+            and query["sql"].lstrip().upper().startswith("SELECT")
+        ]
+        self.assertTrue(prospect_selects)
+        for prospect_select in prospect_selects:
+            self.assertNotIn('JOIN "auth_user"', prospect_select)
+
+        listed = self.history_request("GET")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()["count"], 1)
+        self.assertEqual(listed.json()["maximum"], 5)
+        self.assertEqual(
+            listed.json()["outreaches"][0]["activity_type_display"],
+            "Initial outreach",
+        )
+
+    def test_create_requires_exact_fields_and_enforces_contact_and_date_rules(self):
+        missing = self.history_request(
+            "POST",
+            {"response": "Incomplete request."},
+        )
+        phone_without_number = self.history_request(
+            "POST",
+            {
+                "activity_type": Outreach.ActivityType.PHONE_CALL,
+                "medium": Outreach.Medium.PHONE,
+                "outreach_date": timezone.localdate().isoformat(),
+            },
+        )
+        future = self.history_request(
+            "POST",
+            {
+                "activity_type": Outreach.ActivityType.INITIAL_OUTREACH,
+                "medium": Outreach.Medium.EMAIL,
+                "outreach_date": (timezone.localdate() + timedelta(days=1)).isoformat(),
+            },
+        )
+        unsupported = self.history_request(
+            "POST",
+            {
+                "activity_type": Outreach.ActivityType.INITIAL_OUTREACH,
+                "medium": Outreach.Medium.EMAIL,
+                "outreach_date": timezone.localdate().isoformat(),
+                "sequence_number": 4,
+            },
+        )
+
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(
+            set(missing.json()["field_errors"]),
+            {"activity_type", "medium", "outreach_date"},
+        )
+        self.assertEqual(phone_without_number.status_code, 400)
+        self.assertIn("medium", phone_without_number.json()["field_errors"])
+        self.assertEqual(future.status_code, 400)
+        self.assertIn("outreach_date", future.json()["field_errors"])
+        self.assertEqual(unsupported.status_code, 400)
+        self.assertIn("Unsupported field(s): sequence_number", unsupported.json()["error"])
+        self.assertEqual(self.prospect.outreaches.count(), 0)
+
+    def test_create_enforces_research_state_permissions_and_five_record_limit(self):
+        payload = {
+            "activity_type": Outreach.ActivityType.INITIAL_OUTREACH,
+            "medium": Outreach.Medium.EMAIL,
+            "outreach_date": timezone.localdate().isoformat(),
+        }
+        forbidden = self.history_request("POST", payload, user=self.other)
+        research_prospect = self.make_prospect(
+            self.owner,
+            "Research History Advisory",
+            "https://research-history.example.com",
+            stage=Prospect.Stage.RESEARCH,
+        )
+        research = self.history_request(
+            "POST",
+            payload,
+            prospect=research_prospect,
+        )
+        for sequence_number in range(1, 6):
+            Outreach.objects.create(
+                prospect=self.prospect,
+                sequence_number=sequence_number,
+                activity_type=Outreach.ActivityType.FOLLOW_UP,
+                medium=Outreach.Medium.EMAIL,
+                outreach_date=timezone.localdate(),
+                recorded_by=self.owner,
+            )
+        full = self.history_request("POST", payload)
+
+        self.assertEqual(forbidden.status_code, 403)
+        self.assertEqual(research.status_code, 400)
+        self.assertIn("Complete the required", research.json()["error"])
+        self.assertEqual(full.status_code, 409)
+        self.assertEqual(self.prospect.outreaches.count(), 5)
+
+    def test_linkedin_create_enforces_medium_and_connection_sequence(self):
+        linkedin_user = self.make_user(
+            "history-linkedin@example.com",
+            Profile.Role.LINKEDIN_OUTREACH,
+            "Leena LinkedIn",
+        )
+        linkedin_prospect = self.make_prospect(
+            linkedin_user,
+            "LinkedIn History Advisory",
+            "https://linkedin-history.example.com",
+            contact_email="",
+            contact_linkedin_url="https://www.linkedin.com/in/history-contact",
+            founder_account=Prospect.FounderAccount.KANDARP_SONI,
+            linkedin_connection_status=Prospect.LinkedInConnectionStatus.NOT_SENT,
+            personalization_note="Chicago advisory practice.",
+        )
+        premature = self.history_request(
+            "POST",
+            {
+                "activity_type": Outreach.ActivityType.INITIAL_OUTREACH,
+                "medium": Outreach.Medium.LINKEDIN,
+                "outreach_date": timezone.localdate().isoformat(),
+            },
+            user=linkedin_user,
+            prospect=linkedin_prospect,
+        )
+        wrong_medium = self.history_request(
+            "POST",
+            {
+                "activity_type": Outreach.ActivityType.CONNECTION_REQUEST,
+                "medium": Outreach.Medium.EMAIL,
+                "outreach_date": timezone.localdate().isoformat(),
+            },
+            user=linkedin_user,
+            prospect=linkedin_prospect,
+        )
+        valid = self.history_request(
+            "POST",
+            {
+                "activity_type": Outreach.ActivityType.CONNECTION_REQUEST,
+                "medium": Outreach.Medium.LINKEDIN,
+                "outreach_date": timezone.localdate().isoformat(),
+            },
+            user=linkedin_user,
+            prospect=linkedin_prospect,
+        )
+
+        self.assertEqual(premature.status_code, 400)
+        self.assertIn("activity_type", premature.json()["field_errors"])
+        self.assertEqual(wrong_medium.status_code, 400)
+        self.assertIn("medium", wrong_medium.json()["field_errors"])
+        self.assertEqual(valid.status_code, 201, valid.content)
+        linkedin_prospect.refresh_from_db()
+        self.assertEqual(
+            linkedin_prospect.linkedin_connection_status,
+            Prospect.LinkedInConnectionStatus.REQUEST_SENT,
+        )
+
+    def test_detail_get_and_patch_are_scoped_partial_and_audited(self):
+        outreach = Outreach.objects.create(
+            prospect=self.prospect,
+            sequence_number=1,
+            activity_type=Outreach.ActivityType.INITIAL_OUTREACH,
+            medium=Outreach.Medium.EMAIL,
+            outreach_date=timezone.localdate() - timedelta(days=2),
+            response="Original note.",
+            recorded_by=self.owner,
+        )
+        new_date = timezone.localdate() - timedelta(days=1)
+        updated = self.detail_request(
+            "PATCH",
+            outreach,
+            {
+                "outreach_date": new_date.isoformat(),
+                "response": "Corrected factual note.",
+            },
+        )
+        forbidden = self.detail_request("GET", outreach, user=self.other)
+        manager_read = self.detail_request("GET", outreach, user=self.manager)
+        immutable = self.detail_request(
+            "PATCH",
+            outreach,
+            {"sequence_number": 5},
+        )
+
+        self.assertEqual(updated.status_code, 200, updated.content)
+        self.assertEqual(updated.json()["outreach"]["outreach_date"], new_date.isoformat())
+        self.assertEqual(updated.json()["outreach"]["activity_type"], Outreach.ActivityType.INITIAL_OUTREACH)
+        self.assertEqual(updated.json()["modified_by"]["email"], self.owner.email)
+        self.assertEqual(forbidden.status_code, 403)
+        self.assertEqual(manager_read.status_code, 200)
+        self.assertEqual(immutable.status_code, 400)
+        self.assertIn("Unsupported field(s): sequence_number", immutable.json()["error"])
+
+        outreach.refresh_from_db()
+        self.assertEqual(outreach.response, "Corrected factual note.")
+        audit = OutreachUpdateAudit.objects.get(outreach=outreach)
+        self.assertEqual(audit.modified_by, self.owner)
+        self.assertEqual(audit.previous_values["response"], "Original note.")
+        self.assertEqual(audit.changed_values["outreach_date"], new_date.isoformat())
+
+    def test_history_apis_require_a_bearer_token(self):
+        list_response = self.client.get(
+            reverse("api_prospect_outreach_list", args=[self.prospect.pk])
+        )
+        missing_response = self.client.get(
+            reverse("api_outreach_detail", args=[999999]),
+            HTTP_AUTHORIZATION=self.bearer(self.manager),
+        )
+
+        self.assertEqual(list_response.status_code, 401)
+        self.assertEqual(missing_response.status_code, 404)
+
+
 class ApiDocumentationTests(CompanyApiTestMixin, TestCase):
     def setUp(self):
         self.user = self.make_user(
@@ -878,7 +1152,7 @@ class ApiDocumentationTests(CompanyApiTestMixin, TestCase):
             "Meera Manager",
         )
 
-    def test_api_access_lists_four_separate_guides(self):
+    def test_api_access_lists_separate_guides(self):
         self.client.force_login(self.user)
         response = self.client.get(reverse("api_access"))
 
@@ -888,6 +1162,8 @@ class ApiDocumentationTests(CompanyApiTestMixin, TestCase):
             ("founder-linkedin", "Founder LinkedIn account API"),
             ("interest-handoff", "Interest and handoff API"),
             ("follow-up", "Follow-up API"),
+            ("outreach-history-list-create", "Outreach history list and create API"),
+            ("outreach-history-detail", "Outreach history detail API"),
         ]:
             with self.subTest(slug=slug):
                 self.assertContains(response, title)
@@ -915,6 +1191,19 @@ class ApiDocumentationTests(CompanyApiTestMixin, TestCase):
                 "meeting_scheduled_at",
                 "ISO 8601",
             ],
+            "outreach-history-list-create": [
+                "activity_type",
+                "connection_request",
+                "outreach_date",
+                "GET, POST",
+                "curl --request POST",
+            ],
+            "outreach-history-detail": [
+                "outreach_id",
+                "sequence_number",
+                "previous values",
+                "GET, PATCH",
+            ],
         }
 
         for slug, expected_text in expectations.items():
@@ -926,7 +1215,8 @@ class ApiDocumentationTests(CompanyApiTestMixin, TestCase):
                 for text in expected_text:
                     self.assertContains(response, escape(text))
                 self.assertContains(response, "Authorization: Bearer")
-                self.assertContains(response, "curl --request PATCH")
+                if slug != "outreach-history-list-create":
+                    self.assertContains(response, "curl --request PATCH")
 
     def test_documentation_pages_require_login_and_unknown_page_is_404(self):
         protected = self.client.get(

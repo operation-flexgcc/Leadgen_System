@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
 from django.core.validators import EmailValidator, URLValidator
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -22,15 +22,19 @@ from .api_tokens import (
     rotate_refresh_token,
 )
 from .api_documentation import API_DOCUMENTATION, API_DOCUMENTATION_ORDER
+from .forms import OutreachForm
 from .models import (
     ApiAccessToken,
     CompanyIdentity,
     CompanyUpdateAudit,
+    Outreach,
+    OutreachUpdateAudit,
     Profile,
     Prospect,
     ProspectUpdateAudit,
 )
 from .permissions import is_manager
+from .workflows import sync_prospect_from_outreach
 
 
 API_COMPANY_FIELDS = {
@@ -116,6 +120,18 @@ LINKEDIN_ONLY_PROSPECT_FIELDS = {
     "personalization_note",
     "founder_escalation_required",
     "founder_escalation_notes",
+}
+
+API_OUTREACH_FIELDS = {
+    "activity_type",
+    "medium",
+    "outreach_date",
+    "response",
+}
+API_OUTREACH_CREATE_REQUIRED_FIELDS = {
+    "activity_type",
+    "medium",
+    "outreach_date",
 }
 
 
@@ -736,6 +752,306 @@ def follow_up(request, prospect_id):
         prospect_id,
         allowed_fields=PROSPECT_WORKFLOW_FIELDS["follow-up"],
         message=PROSPECT_WORKFLOW_MESSAGES["follow-up"],
+    )
+
+
+def _outreach_details(outreach):
+    return {
+        "id": outreach.pk,
+        "prospect_id": outreach.prospect_id,
+        "company_id": str(outreach.prospect.company_id),
+        "company_name": outreach.prospect.company_name,
+        "sequence_number": outreach.sequence_number,
+        "activity_type": outreach.activity_type,
+        "activity_type_display": outreach.get_activity_type_display(),
+        "medium": outreach.medium,
+        "medium_display": outreach.get_medium_display(),
+        "outreach_date": outreach.outreach_date.isoformat(),
+        "response": outreach.response,
+        "recorded_by": {
+            "name": _display_name(outreach.recorded_by),
+            "email": outreach.recorded_by.email,
+        },
+        "created_at": outreach.created_at.isoformat(),
+        "updated_at": outreach.updated_at.isoformat(),
+    }
+
+
+def _prepare_outreach_form_data(payload, *, instance=None):
+    unknown_fields = sorted(set(payload) - API_OUTREACH_FIELDS)
+    if unknown_fields:
+        raise ValueError(f"Unsupported field(s): {', '.join(unknown_fields)}.")
+    if not payload:
+        raise ValueError("Provide at least one outreach field.")
+
+    errors = {}
+    if instance is None:
+        for field in sorted(API_OUTREACH_CREATE_REQUIRED_FIELDS - set(payload)):
+            errors[field] = "This field is required when creating outreach history."
+
+    cleaned_payload = {}
+    for field, value in payload.items():
+        if field == "response" and value is None:
+            value = ""
+        if not isinstance(value, str):
+            errors[field] = (
+                "Use a string or null value."
+                if field == "response"
+                else "Use a string value."
+            )
+            continue
+        cleaned_payload[field] = value
+
+    if errors:
+        validation_error = ValueError("One or more outreach fields are invalid.")
+        validation_error.field_errors = errors
+        raise validation_error
+
+    if instance is None:
+        return cleaned_payload, cleaned_payload.copy()
+
+    form_data = {
+        "activity_type": instance.activity_type,
+        "medium": instance.medium,
+        "outreach_date": instance.outreach_date.isoformat(),
+        "response": instance.response,
+    }
+    form_data.update(cleaned_payload)
+    return cleaned_payload, form_data
+
+
+def _outreach_form_errors(form, *, prospect, submitted_fields):
+    errors = {
+        ("non_field_errors" if field == "__all__" else field): " ".join(
+            item["message"] for item in field_errors
+        )
+        for field, field_errors in form.errors.get_json_data().items()
+    }
+    if (
+        prospect.workstream == Prospect.Workstream.LINKEDIN_OUTREACH
+        and "medium" in submitted_fields
+        and submitted_fields["medium"] != Outreach.Medium.LINKEDIN
+    ):
+        errors["medium"] = "LinkedIn outreach prospects must use the linkedin medium."
+    return errors
+
+
+def _api_user_can_access_prospect(user, prospect):
+    return is_manager(user) or prospect.owner_id == user.id
+
+
+@csrf_exempt
+@api_token_required
+@require_http_methods(["GET", "POST"])
+def prospect_outreach_list(request, prospect_id):
+    if request.method == "GET":
+        try:
+            prospect = Prospect.objects.select_related("owner").get(pk=prospect_id)
+        except Prospect.DoesNotExist:
+            return _json_error("Prospect ID was not found.", 404)
+        if not _api_user_can_access_prospect(request.api_user, prospect):
+            return _json_error(
+                "Claim this prospect before viewing its outreach history via API.",
+                403,
+            )
+        outreaches = prospect.outreaches.select_related("recorded_by").all()
+        return JsonResponse(
+            {
+                "prospect": _prospect_details(prospect, fields=()),
+                "count": len(outreaches),
+                "maximum": 5,
+                "outreaches": [_outreach_details(outreach) for outreach in outreaches],
+            }
+        )
+
+    try:
+        payload = _read_json_object(request)
+        submitted_fields, form_data = _prepare_outreach_form_data(payload)
+    except ValueError as error:
+        return _json_error(
+            str(error),
+            400,
+            errors=getattr(error, "field_errors", None),
+        )
+
+    with transaction.atomic():
+        try:
+            # Lock only the prospect row. Joining nullable owner here causes the
+            # same PostgreSQL FOR UPDATE error fixed in the browser add flow.
+            prospect = Prospect.objects.select_for_update().get(pk=prospect_id)
+        except Prospect.DoesNotExist:
+            return _json_error("Prospect ID was not found.", 404)
+        if not _api_user_can_access_prospect(request.api_user, prospect):
+            return _json_error(
+                "Claim this prospect before adding outreach history via API.",
+                403,
+            )
+        if prospect.stage == Prospect.Stage.RESEARCH:
+            return _json_error(
+                "Complete the required contact and qualification research before recording outreach.",
+                400,
+            )
+
+        existing_numbers = list(
+            prospect.outreaches.order_by("sequence_number").values_list(
+                "sequence_number",
+                flat=True,
+            )
+        )
+        if len(existing_numbers) >= 5:
+            return _json_error(
+                "This prospect already has the maximum of five outreach records.",
+                409,
+            )
+
+        form = OutreachForm(form_data, prospect=prospect)
+        form.is_valid()
+        field_errors = _outreach_form_errors(
+            form,
+            prospect=prospect,
+            submitted_fields=submitted_fields,
+        )
+        if field_errors:
+            return _json_error(
+                "One or more outreach fields are invalid.",
+                400,
+                errors=field_errors,
+            )
+
+        outreach = form.save(commit=False)
+        outreach.prospect = prospect
+        outreach.recorded_by = request.api_user
+        outreach.sequence_number = next(
+            number for number in range(1, 6) if number not in existing_numbers
+        )
+        try:
+            with transaction.atomic():
+                outreach.save()
+        except IntegrityError:
+            return _json_error(
+                "Another outreach was added at the same time. Please try again.",
+                409,
+            )
+        sync_prospect_from_outreach(prospect, outreach)
+
+    created_outreach = Outreach.objects.select_related(
+        "prospect",
+        "recorded_by",
+    ).get(pk=outreach.pk)
+    return JsonResponse(
+        {
+            "message": f"Outreach {outreach.sequence_number} was recorded.",
+            "outreach": _outreach_details(created_outreach),
+        },
+        status=201,
+    )
+
+
+@csrf_exempt
+@api_token_required
+@require_http_methods(["GET", "PATCH"])
+def outreach_detail(request, outreach_id):
+    if request.method == "GET":
+        try:
+            outreach = Outreach.objects.select_related(
+                "prospect",
+                "prospect__owner",
+                "recorded_by",
+            ).get(pk=outreach_id)
+        except Outreach.DoesNotExist:
+            return _json_error("Outreach ID was not found.", 404)
+        if not _api_user_can_access_prospect(request.api_user, outreach.prospect):
+            return _json_error(
+                "You must own this outreach's prospect before viewing its history via API.",
+                403,
+            )
+        return JsonResponse({"outreach": _outreach_details(outreach)})
+
+    try:
+        payload = _read_json_object(request)
+    except ValueError as error:
+        return _json_error(str(error), 400)
+
+    try:
+        prospect_id = Outreach.objects.values_list("prospect_id", flat=True).get(
+            pk=outreach_id
+        )
+    except Outreach.DoesNotExist:
+        return _json_error("Outreach ID was not found.", 404)
+
+    with transaction.atomic():
+        try:
+            prospect = Prospect.objects.select_for_update().get(pk=prospect_id)
+            outreach = Outreach.objects.select_for_update().get(
+                pk=outreach_id,
+                prospect_id=prospect_id,
+            )
+        except (Prospect.DoesNotExist, Outreach.DoesNotExist):
+            return _json_error("Outreach ID was not found.", 404)
+        if not _api_user_can_access_prospect(request.api_user, prospect):
+            return _json_error(
+                "You must own this outreach's prospect before modifying its history via API.",
+                403,
+            )
+
+        try:
+            submitted_fields, form_data = _prepare_outreach_form_data(
+                payload,
+                instance=outreach,
+            )
+        except ValueError as error:
+            return _json_error(
+                str(error),
+                400,
+                errors=getattr(error, "field_errors", None),
+            )
+
+        # ModelForm validation writes cleaned values onto its instance, so take
+        # the audit snapshot before constructing and validating the form.
+        previous_values = {
+            field: _serialize_api_value(getattr(outreach, field))
+            for field in submitted_fields
+        }
+        form = OutreachForm(form_data, instance=outreach, prospect=prospect)
+        form.is_valid()
+        field_errors = _outreach_form_errors(
+            form,
+            prospect=prospect,
+            submitted_fields=submitted_fields,
+        )
+        if field_errors:
+            return _json_error(
+                "One or more outreach fields are invalid.",
+                400,
+                errors=field_errors,
+            )
+
+        outreach = form.save()
+        sync_prospect_from_outreach(prospect, outreach)
+        changed_values = {
+            field: _serialize_api_value(getattr(outreach, field))
+            for field in submitted_fields
+        }
+        OutreachUpdateAudit.objects.create(
+            outreach=outreach,
+            modified_by=request.api_user,
+            previous_values=previous_values,
+            changed_values=changed_values,
+        )
+
+    updated_outreach = Outreach.objects.select_related(
+        "prospect",
+        "recorded_by",
+    ).get(pk=outreach_id)
+    return JsonResponse(
+        {
+            "message": f"Outreach {outreach.sequence_number} was updated.",
+            "modified_by": {
+                "name": _display_name(request.api_user),
+                "email": request.api_user.email,
+            },
+            "outreach": _outreach_details(updated_outreach),
+        }
     )
 
 

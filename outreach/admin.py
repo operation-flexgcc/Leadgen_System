@@ -3,6 +3,7 @@ from django.contrib import admin
 from .models import (
     CompanyUpdateAudit,
     Outreach,
+    OutreachUpdateAudit,
     Profile,
     Prospect,
     ProspectImportBatch,
@@ -75,6 +76,35 @@ class ProspectUpdateAuditAdmin(admin.ModelAdmin):
     )
     readonly_fields = (
         "prospect",
+        "modified_by",
+        "source",
+        "previous_values",
+        "changed_values",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(OutreachUpdateAudit)
+class OutreachUpdateAuditAdmin(admin.ModelAdmin):
+    list_display = ("outreach", "modified_by", "source", "created_at")
+    list_filter = ("source", "created_at")
+    search_fields = (
+        "outreach__prospect__company_name",
+        "modified_by__email",
+        "modified_by__first_name",
+        "modified_by__last_name",
+    )
+    readonly_fields = (
+        "outreach",
         "modified_by",
         "source",
         "previous_values",

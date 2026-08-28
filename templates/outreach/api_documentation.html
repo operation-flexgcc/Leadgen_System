@@ -3,12 +3,12 @@
 {% block content %}
 <section class="page-heading api-doc-heading">
     <a class="back-link" href="{% url 'api_access' %}">← API access</a>
-    <p class="eyebrow">Prospect workflow API</p>
+    <p class="eyebrow">FlexGCC API guide</p>
     <h1>{{ documentation.title }}</h1>
     <p>{{ documentation.summary }}</p>
 </section>
 
-<nav class="api-doc-nav" aria-label="Prospect workflow API guides">
+<nav class="api-doc-nav" aria-label="FlexGCC API guides">
     {% for item in workflow_api_docs %}
     <a href="{% url 'api_documentation' item.slug %}" {% if item.slug == documentation.slug %}aria-current="page"{% endif %}>{{ item.nav_label }}</a>
     {% endfor %}
@@ -16,17 +16,17 @@
 
 <section class="panel api-docs-panel api-contract-panel">
     <div class="panel-header">
-        <div><h2>Endpoint contract</h2><p>Read the current section with GET or update supplied fields with PATCH.</p></div>
+        <div><h2>Endpoint contract</h2><p>{{ documentation.contract_summary|default:"Read the current section with GET or update supplied fields with PATCH." }}</p></div>
     </div>
     <div class="api-contract-summary">
-        <div><span>Methods</span><strong>GET, PATCH</strong></div>
+        <div><span>Methods</span><strong>{{ documentation.methods|default:"GET, PATCH" }}</strong></div>
         <div><span>Authentication</span><strong>Bearer access token</strong></div>
         <div class="api-contract-endpoint"><span>Endpoint</span><code>{{ documentation.endpoint }}</code></div>
     </div>
     <div class="api-docs-copy api-doc-intro">
         <h3>Authorization</h3>
-        <p>Send <code>Authorization: Bearer &lt;access_token&gt;</code>. Managers and system administrators can access every prospect. A sales intern, inside-sales user, or LinkedIn-outreach user must own the exact prospect. Unassigned or another user's prospect returns HTTP 403.</p>
-        <p>PATCH accepts a JSON object. Send only fields that should change; omitted fields retain their values. Every successful PATCH creates a prospect update audit containing the authenticated user, previous values, changed values, and timestamp.</p>
+        <p>Send <code>Authorization: Bearer &lt;access_token&gt;</code>. {{ documentation.authorization|default:"Managers and system administrators can access every prospect. A sales intern, inside-sales user, or LinkedIn-outreach user must own the exact prospect. Unassigned or another user's prospect returns HTTP 403." }}</p>
+        <p>{{ documentation.behavior|default:"PATCH accepts a JSON object. Send only fields that should change; omitted fields retain their values. Every successful PATCH creates a prospect update audit containing the authenticated user, previous values, changed values, and timestamp." }}</p>
     </div>
 </section>
 
@@ -77,7 +77,7 @@
 
 <section class="panel api-docs-panel">
     <div class="panel-header">
-        <div><h2>Executable examples</h2><p>Replace the prospect ID and access token before running.</p></div>
+        <div><h2>Executable examples</h2><p>{{ documentation.replacement_hint|default:"Replace the prospect ID and access token before running." }}</p></div>
     </div>
     <div class="api-docs-copy">
         <h3>JSON request body</h3>
@@ -85,10 +85,14 @@
         <h3>curl</h3>
         <pre>{{ documentation.curl_example }}</pre>
         <h3>Read the current values</h3>
+        {% if documentation.read_curl_example %}
+        <pre>{{ documentation.read_curl_example }}</pre>
+        {% else %}
         <pre>curl --request GET \
   --url 'https://leadgen.flexgcc.com{{ documentation.endpoint }}' \
   --header 'Authorization: Bearer &lt;access_token&gt;'</pre>
         <p>Replace <code>&lt;prospect_id&gt;</code> in the GET URL with the numeric prospect ID.</p>
+        {% endif %}
     </div>
 </section>
 
@@ -100,12 +104,18 @@
         <table>
             <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
             <tbody>
+                {% if documentation.responses %}
+                {% for response in documentation.responses %}
+                <tr><td><code>{{ response.status }}</code></td><td>{{ response.meaning }}</td></tr>
+                {% endfor %}
+                {% else %}
                 <tr><td><code>200</code></td><td>GET succeeded or PATCH was validated, saved, and audited.</td></tr>
                 <tr><td><code>400</code></td><td>Malformed JSON, unsupported field, invalid type/value, or a workflow validation rule failed.</td></tr>
                 <tr><td><code>401</code></td><td>The bearer token is missing, invalid, revoked, or belongs to an inactive user.</td></tr>
                 <tr><td><code>403</code></td><td>The token user does not own this prospect and is not a manager or system administrator.</td></tr>
                 <tr><td><code>404</code></td><td>The numeric prospect ID does not exist.</td></tr>
                 <tr><td><code>405</code></td><td>The endpoint received a method other than GET or PATCH.</td></tr>
+                {% endif %}
             </tbody>
         </table>
     </div>

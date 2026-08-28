@@ -104,6 +104,8 @@ The company response includes a `prospects` list containing the prospect ID and 
 | Founder LinkedIn | `GET`, `PATCH` | `/api/v1/prospects/<prospect_id>/founder-linkedin/` | `founder_account`, `linkedin_connection_status`, `personalization_note`, `founder_escalation_required`, `founder_escalation_notes` |
 | Interest and handoff | `GET`, `PATCH` | `/api/v1/prospects/<prospect_id>/interest-handoff/` | `material_shared`, `interest_signal`, `questions_for_founders` |
 | Follow-up | `GET`, `PATCH` | `/api/v1/prospects/<prospect_id>/follow-up/` | `status`, `next_action`, `next_action_date`, `comments`, and conditional meeting fields |
+| Outreach history list/create | `GET`, `POST` | `/api/v1/prospects/<prospect_id>/outreaches/` | `activity_type`, `medium`, `outreach_date`, `response` |
+| Outreach history detail | `GET`, `PATCH` | `/api/v1/outreaches/<outreach_id>/` | `activity_type`, `medium`, `outreach_date`, `response` |
 
 For example:
 
@@ -123,6 +125,8 @@ Content-Type: application/json
 The in-app `/api-access/` page links to a separate guide for each API with every input type, conditional requirement, exact dropdown value, validation rule, and executable `curl` example. The general `/api/v1/prospects/<prospect_id>/` endpoint remains available for backward compatibility.
 
 Managers and system administrators can read or update any prospect. A frontline user must own the exact prospect. Each successful workflow update is audited separately with the authenticated user, prior values, new values, and timestamp. Founder LinkedIn fields apply only to LinkedIn outreach prospects. Founder escalation can be enabled only after the invitation is accepted and a prospect response or interest signal is recorded. The `prospect_sent` and `is_not_eligible` flags do not silently change stage or status.
+
+The Outreach History APIs apply the same validation as the browser workflow: required research must be complete, the selected channel needs its matching contact detail, future dates are rejected, LinkedIn activities follow the connection state, and each prospect is limited to five numbered records. The server assigns `sequence_number` and `recorded_by`. Outreach identity and sequence cannot be changed or deleted through the API; successful PATCH corrections are audited with the modifier and before/after values.
 
 Claim the prospect for the token user's own workstream with:
 

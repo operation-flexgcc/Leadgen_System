@@ -30,6 +30,7 @@ from .forms import (
 )
 from .models import Outreach, Profile, Prospect, ProspectImportBatch
 from .permissions import is_manager, is_system_admin
+from .workflows import sync_prospect_from_outreach
 
 
 REQUIRED_HEALTH_TABLES = {
@@ -148,44 +149,6 @@ def company_export(request, file_format):
         return response
 
     return JsonResponse({"error": "Choose csv or xlsx."}, status=404)
-
-
-def sync_prospect_from_outreach(prospect, outreach):
-    update_fields = set()
-    if prospect.stage == Prospect.Stage.ELIGIBLE:
-        prospect.stage = Prospect.Stage.CONTACTED
-        update_fields.add("stage")
-    if outreach.response and prospect.stage in {Prospect.Stage.ELIGIBLE, Prospect.Stage.CONTACTED}:
-        prospect.stage = Prospect.Stage.RESPONDED
-        update_fields.add("stage")
-    if (
-        outreach.activity_type == Outreach.ActivityType.CONNECTION_REQUEST
-        and prospect.linkedin_connection_status
-        in {"", Prospect.LinkedInConnectionStatus.NOT_SENT}
-    ):
-        prospect.linkedin_connection_status = Prospect.LinkedInConnectionStatus.REQUEST_SENT
-        update_fields.add("linkedin_connection_status")
-    elif outreach.activity_type == Outreach.ActivityType.CONNECTION_ACCEPTED:
-        prospect.linkedin_connection_status = Prospect.LinkedInConnectionStatus.ACCEPTED
-        update_fields.add("linkedin_connection_status")
-    elif (
-        outreach.activity_type == Outreach.ActivityType.MATERIAL_SENT
-        or (
-            prospect.workstream == Prospect.Workstream.LINKEDIN_OUTREACH
-            and outreach.activity_type == Outreach.ActivityType.INITIAL_OUTREACH
-        )
-    ) and not prospect.material_shared:
-        prospect.material_shared = Prospect.MaterialShared.ONE_PAGE
-        update_fields.add("material_shared")
-    elif outreach.activity_type == Outreach.ActivityType.FOUNDER_ESCALATION:
-        prospect.founder_escalation_required = True
-        if outreach.response:
-            prospect.founder_escalation_notes = outreach.response
-            update_fields.add("founder_escalation_notes")
-        update_fields.add("founder_escalation_required")
-    if update_fields:
-        update_fields.add("updated_at")
-        prospect.save(update_fields=update_fields)
 
 
 @login_required
@@ -442,7 +405,12 @@ def prospect_detail(request, pk):
 @require_POST
 def outreach_add(request, pk):
     with transaction.atomic():
-        prospect = get_object_or_404(scoped_prospects(request.user).select_for_update(), pk=pk)
+        # scoped_prospects() joins nullable owner for display. PostgreSQL rejects
+        # FOR UPDATE on that outer join, so lock only the prospect table here.
+        prospect = get_object_or_404(
+            scoped_prospects(request.user).select_related(None).select_for_update(),
+            pk=pk,
+        )
         if prospect.owner_id != request.user.id and not is_manager(request.user):
             messages.error(request, "Claim this prospect before recording outreach.")
             return redirect(prospect)
@@ -460,7 +428,8 @@ def outreach_add(request, pk):
             outreach.recorded_by = request.user
             outreach.sequence_number = next(number for number in range(1, 6) if number not in existing_numbers)
             try:
-                outreach.save()
+                with transaction.atomic():
+                    outreach.save()
             except IntegrityError:
                 messages.error(request, "Another outreach was added at the same time. Please try again.")
             else:
@@ -512,6 +481,8 @@ def prospect_claim(request, pk):
 def outreach_update(request, pk):
     outreach = get_object_or_404(Outreach.objects.select_related("prospect"), pk=pk)
     prospect = get_scoped_prospect(request.user, outreach.prospect_id)
+    if prospect.owner_id != request.user.id and not is_manager(request.user):
+        raise PermissionDenied("Claim this prospect before editing outreach history.")
     form = OutreachForm(request.POST or None, instance=outreach, prospect=prospect)
     if request.method == "POST" and form.is_valid():
         outreach = form.save()

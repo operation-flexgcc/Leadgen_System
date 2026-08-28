@@ -84,7 +84,7 @@
                     <div class="timeline-content">
                         <div class="timeline-head">
                             <div><strong>{{ outreach.get_activity_type_display }}</strong><span>{{ outreach.get_medium_display }} · {{ outreach.outreach_date|date:"j M Y" }}</span></div>
-                            <a href="{% url 'outreach_update' outreach.pk %}">Edit</a>
+                            {% if can_edit_prospect %}<a href="{% url 'outreach_update' outreach.pk %}">Edit</a>{% endif %}
                         </div>
                         {% if outreach.response %}<p>{{ outreach.response|linebreaksbr }}</p>{% else %}<p class="muted">No response recorded.</p>{% endif %}
                         <small>Recorded by {{ outreach.recorded_by.get_full_name|default:outreach.recorded_by.email }}</small>

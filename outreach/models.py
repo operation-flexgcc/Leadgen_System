@@ -392,6 +392,32 @@ class ProspectUpdateAudit(models.Model):
         return f"Prospect {self.prospect_id} updated by {self.modified_by}"
 
 
+class OutreachUpdateAudit(models.Model):
+    class Source(models.TextChoices):
+        API = "api", "API"
+
+    outreach = models.ForeignKey(
+        Outreach,
+        on_delete=models.PROTECT,
+        related_name="update_audits",
+    )
+    modified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="outreach_update_audits",
+    )
+    source = models.CharField(max_length=20, choices=Source.choices, default=Source.API)
+    previous_values = models.JSONField(default=dict)
+    changed_values = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Outreach {self.outreach_id} updated by {self.modified_by}"
+
+
 class ProspectImportBatch(models.Model):
     class Status(models.TextChoices):
         ACTIVE = "active", "Imported"
