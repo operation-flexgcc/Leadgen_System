@@ -1,9 +1,6 @@
 name: Deploy LeadGen to AWS EC2
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:

@@ -2,6 +2,18 @@
 
 FlexGCC Outreach is a Google-authenticated partner-outreach tracker for sales interns, inside sales, founder-LinkedIn operators, managers, and system administrators.
 
+## Handover documents
+
+- [Project Handoff](docs/FlexGCC_Outreach_Project_Handoff.docx) — transfer baseline, user flows, GitHub state, local setup, production environment, access gaps, and takeover sequence.
+- [User Manual](docs/FlexGCC_Outreach_User_Manual.docx) — role-by-role operating instructions for frontline users, managers, and system administrators.
+- [Product Overview](docs/FlexGCC_Outreach_Product_Overview.docx) — product purpose, workflow, capabilities, permissions, data model, integrations, and boundaries.
+- [Technical Operations Guide](docs/FlexGCC_Outreach_Technical_Operations_Guide.docx) — repository, CI/CD, production operations, recovery, incident response, and engineering change management.
+- [New Codex project starter prompt](handover/STARTER_PROMPT.md) — first-turn instructions for evidence-first orientation without production writes.
+
+## Repository migration status
+
+This maintained copy is hosted at `https://github.com/FlexGCC/leadgen`. Its production deployment workflows are manual-only until the new repository's infrastructure ownership, secrets, and release approvals are explicitly configured. The handover documents retain the previous repository identity as historical source provenance.
+
 ## What is implemented
 
 - Separate prospect histories per outreach workstream, with qualification evidence, consulting focus, client segment, senior-contact details, and within-workstream duplicate suppression.

@@ -41,7 +41,7 @@ Create a dedicated service account, clone the private repository, and create the
 id -u flexgcc >/dev/null 2>&1 || sudo useradd --system --create-home --home-dir /var/lib/flexgcc --shell /usr/sbin/nologin flexgcc
 sudo mkdir -p /opt/flexgcc-outreach
 sudo chown flexgcc:www-data /opt/flexgcc-outreach
-sudo -u flexgcc git clone git@github.com:gopalakrishnanplus-creator/FlexGCC-Outreach.git /opt/flexgcc-outreach
+sudo -u flexgcc git clone git@github.com:FlexGCC/leadgen.git /opt/flexgcc-outreach
 sudo -u flexgcc python3 -m venv /opt/flexgcc-outreach/venv
 sudo -u flexgcc mkdir -p /opt/flexgcc-outreach/staticfiles
 sudo chown flexgcc:www-data /opt/flexgcc-outreach/staticfiles
