@@ -12,7 +12,7 @@ FlexGCC Outreach is a Google-authenticated partner-outreach tracker for sales in
 
 ## Repository migration status
 
-This maintained copy is hosted at `https://github.com/FlexGCC/leadgen`. Its production deployment workflows are manual-only until the new repository's infrastructure ownership, secrets, and release approvals are explicitly configured. The handover documents retain the previous repository identity as historical source provenance.
+The working source repository is `https://github.com/operation-flexgcc/Leadgen_System`, configured locally as `origin`. The production source repository is `https://github.com/FlexGCC/leadgen`, configured locally as `production`. Production deployment workflows remain manual-only until infrastructure ownership, secrets, and release approvals are explicitly configured. The handover documents retain the earlier repository identity as historical source provenance.
 
 ## What is implemented
 
