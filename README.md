@@ -19,7 +19,7 @@ The working source repository is `https://github.com/operation-flexgcc/Leadgen_S
 - Separate prospect histories per outreach workstream, with qualification evidence, consulting focus, client segment, senior-contact details, and within-workstream duplicate suppression.
 - Three playbook workstreams: sales intern, inside sales, and LinkedIn outreach through either Kandarp Soni or Sunit Kala.
 - Up to five outreach records per prospect, each with playbook activity, medium, date, and response or factual notes.
-- Playbook stages from Research required and Eligible through Founder meeting booked, plus next actions, outcome status, comments, and complete meeting handoff details.
+- Playbook stages from Eligible through Founder meeting booked, plus next actions, outcome status, comments, and complete meeting handoff details.
 - Statuses: Not yet responded, Not interested, Meeting to be scheduled, Meeting scheduled, and Meeting done.
 - Dashboard with 20 prospects per page and manager filters for user class, assigned operator, playbook stage, outcome status, outreach count, today's actions, and overdue/upcoming actions.
 - Immutable system-generated company UUIDs shared across that company's workstream records.
@@ -41,7 +41,7 @@ Deleting an unused user removes the account. If the user owns prospect or outrea
 
 ## Approved target-firm import
 
-The repository contains the approved Florida/Chicago and NY/MA/CT source lists under `data/target_firms/`. The import is idempotent and creates unassigned records at the **Research required** stage:
+The repository contains the approved Florida/Chicago and NY/MA/CT source lists under `data/target_firms/`. The import is idempotent and creates unassigned records at the **Eligible** stage:
 
 - Florida/Chicago: 80 sales-intern records and 80 LinkedIn-outreach records.
 - NY/MA/CT: 90 inside-sales records and 90 LinkedIn-outreach records.
@@ -54,7 +54,7 @@ python manage.py import_target_firms
 python manage.py import_target_firms --apply --created-by-email admin@flexgcc.com
 ```
 
-Frontline users see unassigned prospects only in their own user class. They claim a prospect, complete company/contact research, and save it as Eligible before the app permits outreach. Managers can assign unassigned prospects directly from the edit screen. The manual **Import target firms** GitHub workflow runs the same command against production.
+Frontline users see unassigned prospects only in their own user class. They claim a prospect before working it. Managers can assign unassigned prospects directly from the edit screen. The manual **Import target firms** GitHub workflow runs the same command against production.
 
 The migration assigns one company UUID to all existing records with the same normalized website domain. The ID remains stable even when company details are later updated.
 
@@ -66,7 +66,7 @@ Open **Add prospect → Upload prospect CSV** or use **Import CSV** on the dashb
 Company Name,Website,Area
 ```
 
-Valid rows are created at the **Research required** stage. Frontline users import into their own workstream and ownership; managers and system administrators choose a workstream and may leave the batch unassigned or select a matching outreach user. Rows are ignored individually when required cells are blank, the company name or website domain is duplicated within the file or target workstream, the URL is invalid, the row has the wrong number of columns, or a value exceeds the model limit.
+Valid rows are created at the **Eligible** stage. Frontline users import into their own workstream and ownership; managers and system administrators choose a workstream and may leave the batch unassigned or select a matching outreach user. Rows are ignored individually when required cells are blank, the company name or website domain is duplicated within the file or target workstream, the URL is invalid, the row has the wrong number of columns, or a value exceeds the model limit.
 
 The result page lists every added and ignored row and retains the batch in recent ingestion history. **Roll back this batch** removes only unchanged prospects created by that upload. Records edited or used for outreach/API activity are protected and listed instead of being destroyed.
 
@@ -138,7 +138,7 @@ The in-app `/api-access/` page links to a separate guide for each API with every
 
 Managers and system administrators can read or update any prospect. A frontline user must own the exact prospect. Each successful workflow update is audited separately with the authenticated user, prior values, new values, and timestamp. Founder LinkedIn fields apply only to LinkedIn outreach prospects. Founder escalation can be enabled only after the invitation is accepted and a prospect response or interest signal is recorded. The `prospect_sent` and `is_not_eligible` flags do not silently change stage or status.
 
-The Outreach History APIs apply the same validation as the browser workflow: required research must be complete, the selected channel needs its matching contact detail, future dates are rejected, LinkedIn activities follow the connection state, and each prospect is limited to five numbered records. The server assigns `sequence_number` and `recorded_by`. Outreach identity and sequence cannot be changed or deleted through the API; successful PATCH corrections are audited with the modifier and before/after values.
+The Outreach History APIs apply the same validation as the browser workflow: the selected channel needs its matching contact detail, future dates are rejected, LinkedIn activities follow the connection state, and each prospect is limited to five numbered records. The server assigns `sequence_number` and `recorded_by`. Outreach identity and sequence cannot be changed or deleted through the API; successful PATCH corrections are audited with the modifier and before/after values.
 
 Claim the prospect for the token user's own workstream with:
 

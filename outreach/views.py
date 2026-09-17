@@ -385,11 +385,7 @@ def prospect_detail(request, pk):
             "prospect": prospect,
             "outreaches": outreaches,
             "outreach_form": OutreachForm(prospect=prospect),
-            "can_add_outreach": (
-                can_edit_prospect
-                and prospect.stage != Prospect.Stage.RESEARCH
-                and outreaches.count() < 5
-            ),
+            "can_add_outreach": can_edit_prospect and outreaches.count() < 5,
             "can_edit_prospect": can_edit_prospect,
             "can_claim_prospect": (
                 not is_manager(request.user)
@@ -413,9 +409,6 @@ def outreach_add(request, pk):
         )
         if prospect.owner_id != request.user.id and not is_manager(request.user):
             messages.error(request, "Claim this prospect before recording outreach.")
-            return redirect(prospect)
-        if prospect.stage == Prospect.Stage.RESEARCH:
-            messages.error(request, "Complete the required contact and qualification research before recording outreach.")
             return redirect(prospect)
         existing_numbers = list(prospect.outreaches.order_by("sequence_number").values_list("sequence_number", flat=True))
         if len(existing_numbers) >= 5:

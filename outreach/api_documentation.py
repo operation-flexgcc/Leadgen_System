@@ -261,7 +261,7 @@ API_DOCUMENTATION = {
         "methods": "GET, POST",
         "contract_summary": "GET lists all outreach records for one prospect. POST validates and creates the next numbered record.",
         "authorization": "Managers and system administrators can access every prospect. A frontline outreach user must own the exact prospect; an unassigned or another user's prospect returns HTTP 403.",
-        "behavior": "POST uses the same workstream, contact-method, LinkedIn sequence, date, research-completion, and five-record limit rules as the browser form. The server assigns sequence_number and recorded_by.",
+        "behavior": "POST uses the same workstream, contact-method, LinkedIn sequence, date, and five-record limit rules as the browser form. The server assigns sequence_number and recorded_by.",
         "endpoint": "/api/v1/prospects/<prospect_id>/outreaches/",
         "request_example": _json_example(
             {
@@ -315,7 +315,6 @@ API_DOCUMENTATION = {
             },
         ],
         "rules": [
-            "Complete required research before adding an outreach record.",
             "A prospect can have no more than five outreach records; the API returns HTTP 409 at the limit.",
             "sequence_number is read-only and automatically fills the first available number from 1 through 5.",
             "recorded_by is read-only and is set from the bearer token user.",
@@ -327,7 +326,7 @@ API_DOCUMENTATION = {
         "responses": [
             {"status": "200", "meaning": "GET succeeded and returned the outreach list."},
             {"status": "201", "meaning": "POST validated and created the next outreach record."},
-            {"status": "400", "meaning": "Malformed JSON, invalid input, incomplete research, or a workflow rule failed."},
+            {"status": "400", "meaning": "Malformed JSON, invalid input, or a workflow rule failed."},
             {"status": "401", "meaning": "The bearer token is missing, invalid, revoked, or belongs to an inactive user."},
             {"status": "403", "meaning": "The token user does not own this prospect and is not a manager or system administrator."},
             {"status": "404", "meaning": "The numeric prospect ID does not exist."},

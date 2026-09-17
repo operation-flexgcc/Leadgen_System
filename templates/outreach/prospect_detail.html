@@ -24,23 +24,13 @@
     </div>
 </section>
 
-{% if prospect.stage == "research" %}
-<section class="research-notice" aria-label="Research required">
-    <div>
-        <strong>Research required before outreach</strong>
-        <span>This target was imported from {{ prospect.import_source|default:"a source list" }}. Confirm fit, add the senior contact and an outreach channel, then save the record to move it to Eligible.</span>
-    </div>
-    {% if can_claim_prospect %}<span>Claim this record first.</span>{% elif can_edit_prospect %}<a href="{% url 'prospect_update' prospect.pk %}">Complete research →</a>{% endif %}
-</section>
-{% endif %}
-
 <div class="detail-layout">
     <div class="detail-main">
         <section class="panel detail-panel">
             <div class="panel-header">
                 <div><p class="eyebrow">Account context</p><h2>Company and contact</h2></div>
             </div>
-            <p class="description-copy">{{ prospect.short_description|default:"Company description to be researched." }}</p>
+            <p class="description-copy">{{ prospect.short_description|default:"No company description provided." }}</p>
             <dl class="info-grid">
                 <div><dt>Company ID</dt><dd><code>{{ prospect.company_id }}</code></dd></div>
                 <div><dt>Location</dt><dd>{{ prospect.location|default:"Not provided" }}</dd></div>
@@ -49,7 +39,7 @@
                 <div><dt>Client segment</dt><dd>{{ prospect.client_segment|default:"Not provided" }}</dd></div>
                 <div class="info-full"><dt>Eligibility evidence</dt><dd>{{ prospect.eligibility_evidence|default:"Not provided"|linebreaksbr }}</dd></div>
                 <div><dt>Is not eligible</dt><dd>{{ prospect.is_not_eligible|yesno:"Yes,No" }}</dd></div>
-                <div><dt>Contact</dt><dd>{{ prospect.contact_name|default:"Research required" }}</dd></div>
+                <div><dt>Contact</dt><dd>{{ prospect.contact_name|default:"Not provided" }}</dd></div>
                 <div><dt>Title</dt><dd>{{ prospect.contact_title|default:"Not provided" }}</dd></div>
                 <div><dt>Email</dt><dd>{% if prospect.contact_email %}<a href="mailto:{{ prospect.contact_email }}">{{ prospect.contact_email }}</a>{% else %}<span class="muted">Not provided</span>{% endif %}</dd></div>
                 <div><dt>Phone</dt><dd>{% if prospect.contact_phone %}<a href="tel:{{ prospect.contact_phone }}">{{ prospect.contact_phone }}</a>{% else %}<span class="muted">Not provided</span>{% endif %}</dd></div>
@@ -57,7 +47,7 @@
             </dl>
         </section>
 
-        {% if prospect.workstream == "linkedin_outreach" and prospect.stage != "research" %}
+        {% if prospect.workstream == "linkedin_outreach" %}
         <section class="panel detail-panel">
             <div class="panel-header">
                 <div><p class="eyebrow">LinkedIn control</p><h2>Founder account and connection</h2></div>
@@ -106,8 +96,6 @@
                     <div class="field-full"><button class="button" type="submit">Record outreach</button></div>
                 </form>
             </div>
-            {% elif prospect.stage == "research" %}
-            <div class="limit-notice">Complete the required research before recording outreach.</div>
             {% elif not outreaches %}
             <div class="empty-inline"><p>No outreach recorded yet.</p></div>
             {% else %}

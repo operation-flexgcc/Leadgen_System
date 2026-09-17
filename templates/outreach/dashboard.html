@@ -146,7 +146,7 @@
                         <span class="cell-secondary">{{ prospect.website|truncatechars:38 }}</span>
                     </td>
                     <td>
-                        <span class="contact-name">{{ prospect.contact_name|default:"Research required" }}</span>
+                        <span class="contact-name">{{ prospect.contact_name|default:"Not provided" }}</span>
                         <span class="cell-secondary">{{ prospect.contact_email|default:prospect.contact_phone|default:"No contact channel yet" }}</span>
                     </td>
                     {% if current_user_is_manager %}

@@ -886,12 +886,6 @@ def prospect_outreach_list(request, prospect_id):
                 "Claim this prospect before adding outreach history via API.",
                 403,
             )
-        if prospect.stage == Prospect.Stage.RESEARCH:
-            return _json_error(
-                "Complete the required contact and qualification research before recording outreach.",
-                400,
-            )
-
         existing_numbers = list(
             prospect.outreaches.order_by("sequence_number").values_list(
                 "sequence_number",

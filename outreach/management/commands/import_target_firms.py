@@ -87,7 +87,7 @@ class Command(BaseCommand):
                     prospect = Prospect(
                         owner=None,
                         workstream=workstream,
-                        stage=Prospect.Stage.RESEARCH,
+                        stage=Prospect.Stage.ELIGIBLE,
                         company_name=company_name,
                         website=website,
                         short_description="",
@@ -96,10 +96,7 @@ class Command(BaseCommand):
                         status=Prospect.Status.NOT_RESPONDED,
                         import_source=source.label,
                         import_key=import_key,
-                        comments=(
-                            f"Imported from {source.label}, source row {row_number}. "
-                            "Complete company qualification and senior-contact research before outreach."
-                        ),
+                        comments=f"Imported from {source.label}, source row {row_number}.",
                         created_by=creator,
                     )
                     prospect.full_clean()

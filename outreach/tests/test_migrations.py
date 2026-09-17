@@ -62,3 +62,59 @@ class CompanyIdentityMigrationTests(TransactionTestCase):
         self.assertEqual(Prospect.objects.filter(company_id__isnull=True).count(), 0)
         self.assertEqual(CompanyIdentity.objects.count(), 2)
         self.assertEqual(shared.values("company_id").distinct().count(), 1)
+
+
+class RemoveResearchStageMigrationTests(TransactionTestCase):
+    migrate_from = ("outreach", "0008_outreach_update_audit")
+    migrate_to = ("outreach", "0009_remove_research_stage")
+
+    def setUp(self):
+        super().setUp()
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate([self.migrate_from])
+        old_apps = self.executor.loader.project_state([self.migrate_from]).apps
+        User = old_apps.get_model("auth", "User")
+        CompanyIdentity = old_apps.get_model("outreach", "CompanyIdentity")
+        Prospect = old_apps.get_model("outreach", "Prospect")
+        creator = User.objects.create(username="stage-migration-admin")
+        research_company = CompanyIdentity.objects.create(
+            key="research-stage.example.com"
+        )
+        contacted_company = CompanyIdentity.objects.create(
+            key="contacted-stage.example.com"
+        )
+        Prospect.objects.create(
+            company=research_company,
+            stage="research",
+            company_name="Research Stage Advisory",
+            website="https://research-stage.example.com",
+            created_by=creator,
+        )
+        Prospect.objects.create(
+            company=contacted_company,
+            stage="contacted",
+            company_name="Contacted Stage Advisory",
+            website="https://contacted-stage.example.com",
+            created_by=creator,
+        )
+
+        self.executor = MigrationExecutor(connection)
+        self.executor.migrate([self.migrate_to])
+        self.apps = self.executor.loader.project_state([self.migrate_to]).apps
+
+    def tearDown(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+        super().tearDown()
+
+    def test_research_records_are_promoted_and_other_stages_are_unchanged(self):
+        Prospect = self.apps.get_model("outreach", "Prospect")
+
+        self.assertEqual(
+            Prospect.objects.get(company_name="Research Stage Advisory").stage,
+            "eligible",
+        )
+        self.assertEqual(
+            Prospect.objects.get(company_name="Contacted Stage Advisory").stage,
+            "contacted",
+        )

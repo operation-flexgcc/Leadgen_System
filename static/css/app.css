@@ -219,10 +219,6 @@ textarea.form-control { resize: vertical; }
 .detail-title-row h1 { margin-bottom: 0; }
 .detail-actions { display: flex; align-items: center; gap: 10px; }
 .detail-actions form { margin: 0; }
-.research-notice { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 22px; padding: 16px 20px; border: 1px solid #e0bd68; border-radius: var(--radius); background: #fff7df; color: #59471e; }
-.research-notice div { display: grid; gap: 4px; }
-.research-notice strong { color: #3f3218; }
-.research-notice span, .research-notice a { font-size: .86rem; }
 .website-link { display: inline-block; margin-top: 8px; color: var(--muted); }
 .detail-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, .72fr); gap: 18px; align-items: start; }
 .detail-main { display: grid; gap: 18px; }
@@ -376,7 +372,6 @@ textarea.form-control { resize: vertical; }
 @media (max-width: 600px) {
     h1 { font-size: 1.8rem; }
     .heading-with-action, .detail-heading { align-items: flex-start; flex-direction: column; }
-    .research-notice { align-items: flex-start; flex-direction: column; }
     .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
     .metric-card { min-height: 122px; padding: 16px; }
     .metric-card > strong { font-size: 1.7rem; }

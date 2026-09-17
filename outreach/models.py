@@ -50,7 +50,6 @@ class Prospect(models.Model):
         LINKEDIN_OUTREACH = Profile.Role.LINKEDIN_OUTREACH, "LinkedIn outreach"
 
     class Stage(models.TextChoices):
-        RESEARCH = "research", "Research required"
         ELIGIBLE = "eligible", "Eligible"
         CONTACTED = "contacted", "Contacted"
         RESPONDED = "responded", "Responded"
@@ -183,9 +182,6 @@ class Prospect(models.Model):
 
     def clean(self):
         errors = {}
-        research_required = self.stage == self.Stage.RESEARCH
-        if not research_required and not any([self.contact_email, self.contact_phone, self.contact_linkedin_url]):
-            errors["contact_email"] = "Add at least one contact method: email, phone, or LinkedIn."
         if self.owner_id:
             try:
                 owner_role = self.owner.profile.role
@@ -195,15 +191,6 @@ class Prospect(models.Model):
                 errors["owner"] = "Assign this prospect to a sales intern, inside-sales user, or LinkedIn-outreach user."
             elif owner_role != self.workstream:
                 errors["owner"] = "The assigned user's class must match the selected workstream."
-        if not research_required and self.workstream == self.Workstream.LINKEDIN_OUTREACH:
-            if not self.contact_linkedin_url:
-                errors["contact_linkedin_url"] = "A LinkedIn profile is required for LinkedIn outreach."
-            if not self.founder_account:
-                errors["founder_account"] = "Choose the single founder account used for this prospect."
-            if not self.linkedin_connection_status:
-                errors["linkedin_connection_status"] = "Record the current LinkedIn connection state."
-            if not self.personalization_note:
-                errors["personalization_note"] = "Record the factual personalization used for the connection request."
         if self.status == self.Status.MEETING_SCHEDULED:
             if not self.meeting_scheduled_at:
                 errors["meeting_scheduled_at"] = "Enter the meeting date and time when status is Meeting scheduled."

@@ -194,7 +194,7 @@ class DashboardPermissionTests(AppTestMixin, TestCase):
         unclaimed_intern = Prospect.objects.create(
             owner=None,
             workstream=Prospect.Workstream.INTERN,
-            stage=Prospect.Stage.RESEARCH,
+            stage=Prospect.Stage.ELIGIBLE,
             company_name="Available Intern Prospect",
             website="https://available-intern.example.com",
             created_by=self.manager,
@@ -202,7 +202,7 @@ class DashboardPermissionTests(AppTestMixin, TestCase):
         unclaimed_inside_sales = Prospect.objects.create(
             owner=None,
             workstream=Prospect.Workstream.INSIDE_SALES,
-            stage=Prospect.Stage.RESEARCH,
+            stage=Prospect.Stage.ELIGIBLE,
             company_name="Available Inside Sales Prospect",
             website="https://available-inside.example.com",
             created_by=self.manager,
@@ -229,7 +229,7 @@ class DashboardPermissionTests(AppTestMixin, TestCase):
         unclaimed_intern = Prospect.objects.create(
             owner=None,
             workstream=Prospect.Workstream.INTERN,
-            stage=Prospect.Stage.RESEARCH,
+            stage=Prospect.Stage.ELIGIBLE,
             company_name="Unclaimed Intern Prospect",
             website="https://unclaimed-intern.example.com",
             created_by=self.manager,
@@ -237,7 +237,7 @@ class DashboardPermissionTests(AppTestMixin, TestCase):
         unclaimed_inside_sales = Prospect.objects.create(
             owner=None,
             workstream=Prospect.Workstream.INSIDE_SALES,
-            stage=Prospect.Stage.RESEARCH,
+            stage=Prospect.Stage.ELIGIBLE,
             company_name="Unclaimed Inside Sales Prospect",
             website="https://unclaimed-inside.example.com",
             created_by=self.manager,
@@ -551,7 +551,7 @@ class MultiRoleWorkflowTests(AppTestMixin, TestCase):
         self.assertIn("meeting_participants", form.errors)
 
 
-class UnassignedResearchQueueTests(AppTestMixin, TestCase):
+class UnassignedProspectQueueTests(AppTestMixin, TestCase):
     def setUp(self):
         self.admin = self.make_user("admin@example.com", Profile.Role.SYSTEM_ADMIN, "Sana Admin")
         self.intern = self.make_user("intern@example.com", Profile.Role.INTERN, "Isha Intern")
@@ -564,7 +564,7 @@ class UnassignedResearchQueueTests(AppTestMixin, TestCase):
         self.prospect = Prospect.objects.create(
             owner=None,
             workstream=Prospect.Workstream.INTERN,
-            stage=Prospect.Stage.RESEARCH,
+            stage=Prospect.Stage.ELIGIBLE,
             company_name="Imported Advisory",
             website="https://imported-advisory.example.com",
             location="Miami, FL",
@@ -573,14 +573,15 @@ class UnassignedResearchQueueTests(AppTestMixin, TestCase):
             created_by=self.admin,
         )
 
-    def test_research_record_allows_missing_contact_and_qualification_data(self):
+    def test_imported_record_allows_missing_contact_and_qualification_data(self):
         self.prospect.full_clean()
 
     def test_frontline_user_sees_only_the_unassigned_queue_for_their_role(self):
         self.client.force_login(self.intern)
         response = self.client.get(reverse("dashboard"))
         self.assertContains(response, self.prospect.company_name)
-        self.assertContains(response, "Research required")
+        self.assertContains(response, "Eligible")
+        self.assertNotContains(response, "Research required")
 
         self.client.force_login(self.inside_sales)
         self.assertNotContains(self.client.get(reverse("dashboard")), self.prospect.company_name)
@@ -598,9 +599,10 @@ class UnassignedResearchQueueTests(AppTestMixin, TestCase):
             404,
         )
 
-    def test_research_must_be_completed_before_outreach(self):
+    def test_matching_contact_detail_allows_outreach_without_research_gate(self):
         self.prospect.owner = self.intern
-        self.prospect.save(update_fields=["owner"])
+        self.prospect.contact_email = "contact@example.com"
+        self.prospect.save(update_fields=["owner", "contact_email"])
         self.client.force_login(self.intern)
         response = self.client.post(
             reverse("outreach_add", args=[self.prospect.pk]),
@@ -611,9 +613,9 @@ class UnassignedResearchQueueTests(AppTestMixin, TestCase):
             },
         )
         self.assertRedirects(response, self.prospect.get_absolute_url())
-        self.assertEqual(self.prospect.outreaches.count(), 0)
+        self.assertEqual(self.prospect.outreaches.count(), 1)
 
-    def test_completed_research_moves_record_to_eligible(self):
+    def test_editing_an_eligible_record_keeps_it_eligible(self):
         self.prospect.owner = self.intern
         self.prospect.save(update_fields=["owner"])
         self.client.force_login(self.intern)
@@ -655,7 +657,7 @@ class TargetFirmImportTests(AppTestMixin, TestCase):
             Prospect.objects.filter(workstream=Prospect.Workstream.LINKEDIN_OUTREACH).count(),
             170,
         )
-        self.assertEqual(Prospect.objects.filter(stage=Prospect.Stage.RESEARCH).count(), 340)
+        self.assertEqual(Prospect.objects.filter(stage=Prospect.Stage.ELIGIBLE).count(), 340)
         self.assertEqual(Prospect.objects.filter(owner__isnull=True).count(), 340)
         self.assertEqual(Prospect.objects.values("company_id").distinct().count(), 170)
         sample_domain = Prospect.objects.filter(import_key="360alignmentadvisors.com")

@@ -349,7 +349,7 @@ class CompanyApiTests(CompanyApiTestMixin, TestCase):
         unassigned = Prospect.objects.create(
             owner=None,
             workstream=Prospect.Workstream.INTERN,
-            stage=Prospect.Stage.RESEARCH,
+            stage=Prospect.Stage.ELIGIBLE,
             company_name="Unassigned Advisory",
             website="https://unassigned.example.com",
             created_by=self.manager,
@@ -382,7 +382,7 @@ class CompanyApiTests(CompanyApiTestMixin, TestCase):
         claimed = Prospect.objects.create(
             owner=self.intern,
             workstream=Prospect.Workstream.INTERN,
-            stage=Prospect.Stage.RESEARCH,
+            stage=Prospect.Stage.ELIGIBLE,
             company_name="Claimed Advisory",
             website="https://claimed.example.com",
             created_by=self.manager,
@@ -400,7 +400,7 @@ class CompanyApiTests(CompanyApiTestMixin, TestCase):
         unassigned = Prospect.objects.create(
             owner=None,
             workstream=Prospect.Workstream.INTERN,
-            stage=Prospect.Stage.RESEARCH,
+            stage=Prospect.Stage.ELIGIBLE,
             company_name="ORENG Consulting",
             website="http://www.orengconsulting.com",
             location="Boston, MA",
@@ -995,24 +995,13 @@ class OutreachHistoryApiTests(CompanyApiTestMixin, TestCase):
         self.assertIn("Unsupported field(s): sequence_number", unsupported.json()["error"])
         self.assertEqual(self.prospect.outreaches.count(), 0)
 
-    def test_create_enforces_research_state_permissions_and_five_record_limit(self):
+    def test_create_enforces_permissions_and_five_record_limit(self):
         payload = {
             "activity_type": Outreach.ActivityType.INITIAL_OUTREACH,
             "medium": Outreach.Medium.EMAIL,
             "outreach_date": timezone.localdate().isoformat(),
         }
         forbidden = self.history_request("POST", payload, user=self.other)
-        research_prospect = self.make_prospect(
-            self.owner,
-            "Research History Advisory",
-            "https://research-history.example.com",
-            stage=Prospect.Stage.RESEARCH,
-        )
-        research = self.history_request(
-            "POST",
-            payload,
-            prospect=research_prospect,
-        )
         for sequence_number in range(1, 6):
             Outreach.objects.create(
                 prospect=self.prospect,
@@ -1025,8 +1014,6 @@ class OutreachHistoryApiTests(CompanyApiTestMixin, TestCase):
         full = self.history_request("POST", payload)
 
         self.assertEqual(forbidden.status_code, 403)
-        self.assertEqual(research.status_code, 400)
-        self.assertIn("Complete the required", research.json()["error"])
         self.assertEqual(full.status_code, 409)
         self.assertEqual(self.prospect.outreaches.count(), 5)
 

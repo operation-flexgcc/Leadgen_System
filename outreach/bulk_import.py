@@ -184,8 +184,7 @@ def _batch_source_name(batch):
 
 def _batch_comment(batch, row_number):
     return (
-        f"Imported from {batch.source_filename}, source row {row_number}, batch {batch.pk}. "
-        "Complete company qualification and senior-contact research before outreach."
+        f"Imported from {batch.source_filename}, source row {row_number}, batch {batch.pk}."
     )
 
 
@@ -244,7 +243,7 @@ def import_prospects_from_csv(*, uploaded_file, uploaded_by, workstream, owner):
             prospect = Prospect(
                 owner=owner,
                 workstream=workstream,
-                stage=Prospect.Stage.RESEARCH,
+                stage=Prospect.Stage.ELIGIBLE,
                 company_name=row.company_name,
                 website=row.website,
                 location=row.area,
@@ -331,7 +330,7 @@ def _prospect_is_unchanged_since_import(prospect, batch, snapshot):
     expected_values = {
         "owner_id": batch.owner_id,
         "workstream": batch.target_workstream,
-        "stage": Prospect.Stage.RESEARCH,
+        "stage": Prospect.Stage.ELIGIBLE,
         "company_name": snapshot["company_name"],
         "website": snapshot["website"],
         "location": snapshot["area"],

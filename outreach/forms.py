@@ -170,6 +170,19 @@ class ProspectForm(forms.ModelForm):
         if owner and workstream and owner.profile.role != workstream:
             self.add_error("owner", "Choose an outreach user whose class matches the selected workstream.")
 
+        if not any(
+            cleaned_data.get(field_name)
+            for field_name in (
+                "contact_email",
+                "contact_phone",
+                "contact_linkedin_url",
+            )
+        ):
+            self.add_error(
+                "contact_email",
+                "Add at least one contact method: email, phone, or LinkedIn.",
+            )
+
         website = cleaned_data.get("website")
         linkedin_url = cleaned_data.get("contact_linkedin_url")
         website_host = self._normalized_website_host(website) if website else ""
@@ -204,8 +217,6 @@ class ProspectForm(forms.ModelForm):
         if not is_manager(self.user):
             prospect.owner = self.user
             prospect.workstream = self.user.profile.role
-        if prospect.stage == Prospect.Stage.RESEARCH:
-            prospect.stage = Prospect.Stage.ELIGIBLE
         if prospect.workstream != Prospect.Workstream.LINKEDIN_OUTREACH:
             prospect.founder_account = ""
             prospect.linkedin_connection_status = ""

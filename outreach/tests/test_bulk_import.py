@@ -138,7 +138,7 @@ class BulkProspectImportTests(BulkImportTestMixin, TestCase):
         self.assertEqual(imported.count(), 2)
         self.assertTrue(all(item.owner == self.intern for item in imported))
         self.assertTrue(all(item.workstream == Prospect.Workstream.INTERN for item in imported))
-        self.assertTrue(all(item.stage == Prospect.Stage.RESEARCH for item in imported))
+        self.assertTrue(all(item.stage == Prospect.Stage.ELIGIBLE for item in imported))
         self.assertEqual(existing.import_batch_id, None)
 
         result = self.client.get(
