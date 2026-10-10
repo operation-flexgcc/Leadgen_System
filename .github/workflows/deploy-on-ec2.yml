@@ -76,7 +76,7 @@ jobs:
           python manage.py migrate --noinput
           backup_file="$(mktemp "$RUNNER_TEMP/leadgen-ci.XXXXXX.dump")"
           trap 'rm -f "$backup_file"' EXIT
-          PGDATABASE="$DATABASE_URL" PGCONNECT_TIMEOUT=10 pg_dump --no-password --format=custom --file="$backup_file"
+          python deploy/venv/backup_database.py "$backup_file"
           test -s "$backup_file"
           pg_restore --list "$backup_file" > /dev/null
       - name: Validate production settings and static files

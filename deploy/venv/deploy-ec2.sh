@@ -72,9 +72,9 @@ stage='PostgreSQL backup before migrations'
 mkdir -p "$backup_dir"
 chmod 700 "$backup_dir"
 backup_file="$(mktemp "$backup_dir/pre-${expected_sha:0:12}-$(date -u +%Y%m%dT%H%M%SZ).XXXXXX.dump")"
-# pg_dump accepts a connection URI in PGDATABASE. Credentials stay out of argv/logs.
+# Parse DATABASE_URL into libpq environment variables, never argv/logs.
 # The dump stays mode 0600, outside the checkout; never upload it to Actions.
-PGDATABASE="$DATABASE_URL" PGCONNECT_TIMEOUT=10 pg_dump --no-password --format=custom --file="$backup_file"
+"$python_bin" deploy/venv/backup_database.py "$backup_file"
 [[ -s "$backup_file" ]] || die 'Database backup is empty; refusing migrations.'
 pg_restore --list "$backup_file" > /dev/null
 echo "Pre-migration backup saved: $backup_file"

@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -10,7 +11,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SHA = "a" * 40
 MOCK = r'''#!/usr/bin/env python3
-import json, os, pathlib, sys
+import json, os, pathlib, subprocess, sys
 command = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
 with open(os.environ["DEPLOY_TEST_LOG"], "a") as output:
@@ -29,7 +30,10 @@ elif command == "git":
         print("a" * 40)
 elif command == "pg_dump":
     # Assert the private connection URL was passed only via the environment.
-    assert os.environ["PGDATABASE"].startswith("postgresql://")
+    assert os.environ["PGDATABASE"] == "test"
+    assert os.environ["PGHOST"] == "localhost"
+    assert os.environ["PGUSER"] == "test"
+    assert os.environ["PGPASSWORD"] == "private-password"
     assert not any("password" in value and value != "--no-password" for value in args)
     if scenario == "backup_failure":
         sys.exit(1)
@@ -38,6 +42,8 @@ elif command == "pg_dump":
 elif command == "pg_restore" and scenario == "invalid_backup":
     sys.exit(1)
 elif command == "python":
+    if args[0] == "deploy/venv/backup_database.py":
+        sys.exit(subprocess.run([os.environ["DEPLOY_REAL_PYTHON"], os.environ["DEPLOY_BACKUP_SCRIPT"], args[1]]).returncode)
     if args[:3] == ["manage.py", "migrate", "--noinput"] and scenario == "migration_failure":
         sys.exit(1)
     if args[0] == "-c":
@@ -97,6 +103,8 @@ class EC2DeploymentTests(unittest.TestCase):
         self.env = {
             **os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}",
             "DEPLOY_TEST_LOG": str(self.log),
+            "DEPLOY_REAL_PYTHON": sys.executable,
+            "DEPLOY_BACKUP_SCRIPT": str(ROOT / "deploy/venv/backup_database.py"),
         }
         script = (ROOT / "deploy/venv/deploy-ec2.sh").read_text()
         script = script.replace("/var/www/leadgen", str(self.root))
