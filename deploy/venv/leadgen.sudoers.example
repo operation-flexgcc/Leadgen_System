@@ -1,0 +1,2 @@
+# Review with visudo. Matches the existing Ubuntu leadgen/Unix-socket service.
+ubuntu ALL=(root) NOPASSWD: /usr/sbin/nginx -t, /usr/bin/systemctl restart leadgen, /usr/bin/systemctl is-active --quiet leadgen, /usr/bin/systemctl restart nginx, /usr/bin/systemctl is-active --quiet nginx

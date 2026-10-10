@@ -18,7 +18,7 @@ Sales interns and inside sales submit a short lead form only when ready for exec
 
 ## Repository migration status
 
-The canonical source and production release repository is [operation-flexgcc/Leadgen_System](https://github.com/operation-flexgcc/Leadgen_System), configured locally as `origin`, with release branch `main`. The production system is [leadgen.flexgcc.com](https://leadgen.flexgcc.com/). Earlier repository names in handover documents and any local `production` remote are historical, not deployment targets. CI runs on pull requests and main; the deployment workflows in this checkout use manual dispatch.
+The canonical source and production release repository is [operation-flexgcc/Leadgen_System](https://github.com/operation-flexgcc/Leadgen_System), configured locally as `origin`, with release branch `main`. The production system is [leadgen.flexgcc.com](https://leadgen.flexgcc.com/). Earlier repository names in handover documents and any local `production` remote are historical, not deployment targets. The single **deploy on EC2** workflow tests every push to `main`, then deploys that exact commit over SSH to the existing production virtualenv. Manual reruns are also available on `main`; no feature branch or separate Docker/SSM pipeline is required. See [deployment setup and required secrets](deploy/venv/README.md).
 
 ## What is implemented
 
@@ -61,7 +61,7 @@ python manage.py import_target_firms
 python manage.py import_target_firms --apply --created-by-email admin@flexgcc.com
 ```
 
-Frontline users see unassigned prospects only in their own user class. They claim a prospect before working it. Managers can assign unassigned prospects directly from the edit screen. The manual **Import target firms** GitHub workflow runs the same command against production.
+Frontline users see unassigned prospects only in their own user class. They claim a prospect before working it. Managers can assign unassigned prospects directly from the edit screen. Production imports are an explicitly approved manual operation using the server virtualenv and production environment; they never run automatically during deployment. The old **Import target firms** workflow has been removed.
 
 The migration assigns one company UUID to all existing records with the same normalized website domain. The ID remains stable even when company details are later updated.
 
@@ -233,6 +233,6 @@ The current native EC2 deployment for `leadgen.flexgcc.com` is documented in [`d
 
 The application uses Django 5.2 LTS, PostgreSQL, server-rendered responsive templates, django-allauth for Google OAuth, Gunicorn, and WhiteNoise. Prospect history is normalized into related outreach records; user classes live in an extensible profile model rather than being hard-coded into page logic.
 
-See [`deploy/aws/README.md`](deploy/aws/README.md) for the exact AWS architecture, one-time setup, GitHub variables, deployment behavior, rollback, and first-deployment verification.
+The active production path is [`deploy-on-ec2.yml`](.github/workflows/deploy-on-ec2.yml), [`deploy/venv/deploy-ec2.sh`](deploy/venv/deploy-ec2.sh), and the [EC2 operations guide](deploy/venv/README.md). It installs pinned requirements, backs up PostgreSQL, applies migrations, collects static files, restarts `leadgen` and Nginx, and verifies local and public HTTPS health. Runtime settings remain in the protected server `.env`, using the [production environment template](.env.production.example).
 
-For a server running Django directly in an activated Python virtualenv, use the complete [production environment template](.env.production.example), root [`deploy.sh`](deploy.sh), and [`deploy/venv/README.md`](deploy/venv/README.md). This path installs dependencies, applies migrations, collects static files, restarts Gunicorn through systemd, and verifies application health.
+The root [`deploy.sh`](deploy.sh), Docker files, and [`deploy/aws/`](deploy/aws/) remain legacy/manual alternatives, not active GitHub pipelines. Historical handover documents describe older release arrangements; the EC2 operations guide is authoritative for current deployment.

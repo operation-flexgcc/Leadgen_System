@@ -1,0 +1,153 @@
+name: deploy on EC2
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never interrupt an in-progress database migration with a newer push.
+concurrency:
+  group: leadgen-production
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: Test Django and deployment scripts
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: leadgen_ci
+          POSTGRES_USER: leadgen_ci
+          POSTGRES_PASSWORD: ci-only-database-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U leadgen_ci -d leadgen_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: ci-only-secret-key
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      DJANGO_SECURE_SSL_REDIRECT: "False"
+      DATABASE_URL: postgresql://leadgen_ci:ci-only-database-password@127.0.0.1:5432/leadgen_ci
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.lock.txt
+      - name: Install pinned requirements
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.lock.txt
+          python -m pip check
+      - name: Check deployment scripts and safety tests
+        run: |
+          bash -n deploy/venv/deploy-ec2.sh
+          bash -n deploy/venv/check-public.sh
+          python -m unittest discover -s deploy/tests -v
+      - name: Check Django and committed migrations
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+      - name: Run application tests against PostgreSQL
+        run: python manage.py test --noinput
+      - name: Verify migrations and the PostgreSQL backup command
+        run: |
+          if ! command -v pg_dump > /dev/null || ! command -v pg_restore > /dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install --yes postgresql-client
+          fi
+          python manage.py migrate --noinput
+          backup_file="$(mktemp "$RUNNER_TEMP/leadgen-ci.XXXXXX.dump")"
+          trap 'rm -f "$backup_file"' EXIT
+          PGDATABASE="$DATABASE_URL" PGCONNECT_TIMEOUT=10 pg_dump --no-password --format=custom --file="$backup_file"
+          test -s "$backup_file"
+          pg_restore --list "$backup_file" > /dev/null
+      - name: Validate production settings and static files
+        env:
+          DJANGO_DEBUG: "False"
+          DJANGO_SECRET_KEY: ci-only-long-production-check-secret-key-not-used-at-runtime
+          DJANGO_ALLOWED_HOSTS: leadgen.example.com
+          DJANGO_CSRF_TRUSTED_ORIGINS: https://leadgen.example.com
+          DJANGO_SECURE_SSL_REDIRECT: "True"
+        run: |
+          python manage.py check --deploy --fail-level ERROR
+          python manage.py collectstatic --noinput
+
+  deploy:
+    name: Deploy and verify production
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Connect to EC2 and deploy the tested main commit
+        env:
+          EC2_IP: ${{ secrets.EC2_IP }}
+          EC2_SSH: ${{ secrets.EC2_SSH }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          for name in EC2_IP EC2_SSH; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing Actions repository secret: $name. See deploy/venv/README.md."
+              exit 1
+            fi
+          done
+          if [[ ! "$EC2_IP" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]]; then
+            echo "::error::EC2_IP must contain only a public IPv4 address or DNS hostname, without a user, scheme, or port."
+            exit 1
+          fi
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          ssh_dir="$(mktemp -d "$RUNNER_TEMP/leadgen-ssh.XXXXXX")"
+          trap 'rm -f "$ssh_dir/key" "$ssh_dir/known_hosts"; rmdir "$ssh_dir"' EXIT
+          umask 077
+          printf '%s\n' "$EC2_SSH" | tr -d '\r' > "$ssh_dir/key"
+          ssh-keygen -y -P '' -f "$ssh_dir/key" > /dev/null
+          # Two-secret setup requested by the operator: trust the key scanned
+          # on this run. This is not independent server-identity verification.
+          ssh-keyscan -T 10 -H "$EC2_IP" > "$ssh_dir/known_hosts"
+          if ! ssh-keygen -F "$EC2_IP" -f "$ssh_dir/known_hosts" > /dev/null; then
+            echo "::error::Could not obtain an SSH host key from EC2_IP. Check server reachability on port 22."
+            exit 1
+          fi
+          ssh -T -p 22 -i "$ssh_dir/key" \
+            -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$ssh_dir/known_hosts" \
+            -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=8 \
+            "ubuntu@$EC2_IP" "bash -s -- $DEPLOY_SHA" < deploy/venv/deploy-ec2.sh
+      - name: Check the public HTTPS website from GitHub
+        run: bash deploy/venv/check-public.sh
+      - name: Record verified deployment
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          {
+            echo '## Production deployment verified'
+            echo "- Commit: \`$DEPLOY_SHA\` on \`main\`"
+            echo '- Checkout: `/var/www/leadgen/repo`'
+            echo '- Virtualenv: `/var/www/leadgen/venv`'
+            echo '- PostgreSQL backup saved on EC2 before migrations.'
+            echo '- Requirements, Django checks, migrations and static collection completed.'
+            echo '- `leadgen` and `nginx` restarted and active.'
+            echo '- Gunicorn socket, local Nginx, public HTTPS health and login page passed.'
+            echo '- Website: https://leadgen.flexgcc.com/'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -9,7 +9,7 @@
 
 ## 2. Source control
 
-- [ ] Obtain access to the private repository `gopalakrishnanplus-creator/FlexGCC-Outreach`.
+- [ ] Obtain appropriate access to the canonical repository `operation-flexgcc/Leadgen_System`.
 - [ ] Confirm `main`, remote HEAD, current commit, tree hash, and divergence before changing anything.
 - [ ] Review the current GitHub branch/review policy. Do not assume branch protection is active.
 - [ ] Confirm ownership of GitHub Actions secrets `EC2_IP` and `EC2_SSH` without revealing their values.
@@ -38,8 +38,8 @@
 
 ## 5. Release safety
 
-- [ ] Treat `.github/workflows/deploy-production.yml` as the current live path until independently disproved.
-- [ ] Treat `.github/workflows/deploy-aws.yml` and `deploy/aws/` as an alternate path unless all required AWS variables and live ownership are verified.
+- [ ] Review `.github/workflows/deploy-on-ec2.yml` and `deploy/venv/README.md` as the current production path: pushes to `main` test and then deploy over SSH.
+- [ ] Treat `deploy/aws/` as historical alternate infrastructure; its old workflow has been removed.
 - [ ] Require committed migrations and tests for data-model or workflow changes.
 - [ ] Take and verify a backup before destructive or irreversible database changes.
 - [ ] Verify deployment commit, `/health/`, systemd service, Gunicorn socket, Nginx, and affected read-only user journeys after release.
@@ -53,4 +53,3 @@
 - [ ] New owner can perform a read-only production health and log review.
 - [ ] Secret custody and recovery ownership are documented outside this package.
 - [ ] Outstanding risks, backlog, access removals, and documentation gaps each have an owner and due date.
-

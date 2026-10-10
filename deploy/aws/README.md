@@ -1,5 +1,7 @@
 # AWS production handoff
 
+**Legacy alternate architecture, not the active deployment.** The Docker/ECR/SSM workflow has been removed. Current production uses the single **deploy on EC2** SSH/venv workflow; see [the active operations guide](../venv/README.md). The design below is retained for historical reference and would require a separately approved pipeline before reuse.
+
 ## Recommended v1 architecture
 
 Use a small, conventional stack that can grow without re-platforming:
@@ -64,7 +66,7 @@ Set `SYSTEM_ADMIN_EMAILS` to the first system administrator before the first sig
 
 ## Deployment contract
 
-Every push to `main` runs CI and, once AWS variables exist, the production workflow:
+The former alternate Docker/SSM workflow was designed to:
 
 1. Builds one Docker image from the tested commit.
 2. Pushes immutable `<git-sha>` and convenience `latest` tags to ECR.
@@ -73,7 +75,7 @@ Every push to `main` runs CI and, once AWS variables exist, the production workf
 5. Polls `/health/` for up to 60 seconds.
 6. Restores the previous application image if the new container fails health checks.
 
-The workflow fails unless SSM reports success. The deployed image URI remains visible in the workflow output for audit and rollback.
+That alternate workflow required SSM to report success and recorded the image URI. These steps do not run in the current SSH/venv pipeline.
 
 ## Rollback and data safety
 

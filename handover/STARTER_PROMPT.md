@@ -1,5 +1,7 @@
 # Starter prompt for the new Codex project
 
+**Historical handoff snapshot:** repository names, commit IDs, workflow files and release behavior below describe the original package, not current production. The authoritative current release path is `operation-flexgcc/Leadgen_System`, `main`, `.github/workflows/deploy-on-ec2.yml`, and `deploy/venv/README.md`. The four workflows named in this older prompt have been removed.
+
 Use this prompt after extracting the handoff ZIP and opening the `PROJECT` folder as a new local Codex project.
 
 ---
@@ -79,4 +81,3 @@ Operating rules for subsequent work:
 - Update the user, product, technical, and project-handoff documents whenever visible behavior, architecture, or operations change.
 
 ---
-
