@@ -98,6 +98,7 @@ class ProspectForm(forms.ModelForm):
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
+        self.was_escalated = self.instance.founder_escalation_required
         self.user = user
         self.fields["meeting_scheduled_at"].input_formats = ["%Y-%m-%dT%H:%M"]
         selected_workstream = (
@@ -217,8 +218,20 @@ class ProspectForm(forms.ModelForm):
                     "Claim or transfer the existing record instead of creating another record in the same workstream."
                 )
 
+        if workstream == Prospect.Workstream.LINKEDIN_OUTREACH and cleaned_data.get("founder_escalation_required") and not self.was_escalated:
+            from .legacy_handoffs import validate_legacy_handoff
+
+            # Validate the submitted recipient/contact, not the instance's old values.
+            proposed = Prospect(pk=self.instance.pk)
+            for name in ["founder_account", "contact_name", "contact_email", "contact_phone", "contact_linkedin_url", "is_not_eligible"]:
+                setattr(proposed, name, cleaned_data.get(name))
+            try:
+                validate_legacy_handoff(proposed)
+            except forms.ValidationError as error:
+                self.add_error("founder_escalation_required", "; ".join(error.messages))
         return cleaned_data
 
+    @transaction.atomic
     def save(self, commit=True):
         prospect = super().save(commit=False)
         if not is_manager(self.user):
@@ -233,6 +246,10 @@ class ProspectForm(forms.ModelForm):
         prospect.sync_stage_from_status()
         if commit:
             prospect.save()
+            if prospect.founder_escalation_required and not self.was_escalated:
+                from .legacy_handoffs import ensure_handoff
+
+                ensure_handoff(prospect, self.user)
         return prospect
 
 
@@ -393,6 +410,13 @@ class OutreachForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        from .legacy_handoffs import ESCALATION_ACTIVITIES, validate_legacy_handoff
+
+        if self.prospect and cleaned_data.get("activity_type") in ESCALATION_ACTIVITIES:
+            try:
+                validate_legacy_handoff(self.prospect)
+            except forms.ValidationError as error:
+                self.add_error("activity_type", "; ".join(error.messages))
         if (
             self.prospect
             and self.prospect.workstream == Prospect.Workstream.LINKEDIN_OUTREACH
@@ -535,8 +559,10 @@ class UserProvisionForm(forms.Form):
 
     def clean_roles(self):
         roles = self.cleaned_data["roles"]
-        if self.instance and Profile.Role.ACCOUNT_EXECUTIVE not in roles and self.instance.assigned_escalations.exists():
-            raise forms.ValidationError("Reassign this executive's CRM records before changing their role.")
+        if self.instance and Profile.Role.ACCOUNT_EXECUTIVE not in roles and (
+            self.instance.assigned_escalations.exists() or self.instance.founder_cae_assignments.exists()
+        ):
+            raise forms.ValidationError("Reassign this executive's CRM records and legacy escalation routes before changing their role.")
         return roles
 
     @transaction.atomic

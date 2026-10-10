@@ -19,11 +19,11 @@ from django.test import (
 from django.urls import reverse
 from django.utils import timezone
 
-from outreach import crm
+from outreach import crm, legacy_handoffs
 from outreach.adapters import FlexGCCSocialAccountAdapter
 from outreach.crm_forms import LeadUpdateForm, OpportunityForm
 from outreach.forms import ProspectForm, UserProvisionForm
-from outreach.models import CRMActivity, Escalation, Opportunity, Outreach, Profile
+from outreach.models import CRMActivity, Escalation, FounderCAEAssignment, Opportunity, Outreach, Profile, Prospect
 from outreach.permissions import is_manager
 from outreach.tests.test_company_api import CompanyApiTestMixin
 from outreach.workflows import sync_prospect_from_outreach
@@ -730,6 +730,23 @@ class CRMConcurrencyTests(CompanyApiTestMixin, TransactionTestCase):
     def test_concurrent_handoffs_create_one_record_and_one_event(self):
         identifiers = self.parallel(self.handoff)
         self.assertEqual(len(set(identifiers)), 1)
+        self.assertEqual(Escalation.objects.count(), 1)
+        self.assertEqual(CRMActivity.objects.count(), 1)
+
+    def test_concurrent_legacy_handoffs_create_one_record_and_one_event(self):
+        self.prospect.founder_account = Prospect.FounderAccount.KANDARP_SONI
+        self.prospect.founder_escalation_required = True
+        self.prospect.save()
+        FounderCAEAssignment.objects.create(
+            founder_account=self.prospect.founder_account,
+            executive=self.executive, updated_by=self.operator,
+        )
+
+        def handoff():
+            lead, _ = legacy_handoffs.ensure_handoff(self.prospect, self.operator)
+            return lead.pk
+
+        self.assertEqual(len(set(self.parallel(handoff))), 1)
         self.assertEqual(Escalation.objects.count(), 1)
         self.assertEqual(CRMActivity.objects.count(), 1)
 

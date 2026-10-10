@@ -34,6 +34,7 @@ from .models import (
 )
 from .permissions import active_role, is_manager
 from .workflows import sync_prospect_from_outreach
+from .legacy_handoffs import ensure_handoff, validate_legacy_handoff
 
 
 API_COMPANY_FIELDS = {
@@ -647,6 +648,8 @@ def _prospect_workflow_api(
         previous_values = {}
         model_changes = {}
         original_stage = prospect.stage
+        was_escalated = prospect.founder_escalation_required
+        handoff_requested = cleaned_changes.get("founder_escalation_required") is True
         for api_field, value in cleaned_changes.items():
             model_field = _prospect_model_field(api_field)
             previous_values[api_field] = _serialize_api_value(
@@ -660,6 +663,8 @@ def _prospect_workflow_api(
 
         try:
             prospect.full_clean()
+            if handoff_requested:
+                validate_legacy_handoff(prospect)
         except ValidationError as error:
             return _json_error(
                 "The update would leave the prospect record invalid.",
@@ -672,6 +677,12 @@ def _prospect_workflow_api(
             update_fields.append("stage")
         update_fields.append("updated_at")
         prospect.save(update_fields=update_fields)
+        if handoff_requested:
+            try:
+                ensure_handoff(prospect, request.api_user, historical=was_escalated)
+            except ValidationError as error:
+                transaction.set_rollback(True)
+                return _json_error("CAE handoff failed.", 400, errors={"founder_escalation_required": error.messages})
         ProspectUpdateAudit.objects.create(
             prospect=prospect,
             modified_by=request.api_user,
@@ -922,12 +933,14 @@ def prospect_outreach_list(request, prospect_id):
         try:
             with transaction.atomic():
                 outreach.save()
+                sync_prospect_from_outreach(prospect, outreach, request.api_user)
         except IntegrityError:
             return _json_error(
                 "Another outreach was added at the same time. Please try again.",
                 409,
             )
-        sync_prospect_from_outreach(prospect, outreach)
+        except ValidationError as error:
+            return _json_error("CAE handoff failed.", 400, errors={"activity_type": error.messages})
 
     created_outreach = Outreach.objects.select_related(
         "prospect",
@@ -1021,8 +1034,12 @@ def outreach_detail(request, outreach_id):
                 errors=field_errors,
             )
 
-        outreach = form.save()
-        sync_prospect_from_outreach(prospect, outreach)
+        try:
+            with transaction.atomic():
+                outreach = form.save()
+                sync_prospect_from_outreach(prospect, outreach, request.api_user)
+        except ValidationError as error:
+            return _json_error("CAE handoff failed.", 400, errors={"activity_type": error.messages})
         changed_values = {
             field: _serialize_api_value(getattr(outreach, field))
             for field in submitted_fields

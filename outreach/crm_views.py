@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core import signing
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db.models import Count, F, Q, Sum
 from django.shortcuts import get_object_or_404, redirect, render
@@ -13,6 +14,7 @@ from .crm_forms import (
     CommentForm,
     HandoffForm,
     LeadUpdateForm,
+    LegacyRoutingForm,
     OpportunityForm,
     SubmissionForm,
 )
@@ -24,6 +26,46 @@ from .permissions import (
     is_submission_user,
     is_system_admin,
 )
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def legacy_routing(request):
+    from . import legacy_handoffs
+
+    if not is_system_admin(request.user):
+        raise PermissionDenied("System administrator access is required.")
+    action = request.POST.get("action")
+    form = LegacyRoutingForm(request.POST if action == "save_routes" else None)
+    if request.method == "POST":
+        if action == "save_routes" and form.is_valid():
+            try:
+                form.save(request.user)
+            except ValidationError as error:
+                form.add_error(None, "; ".join(error.messages))
+            else:
+                messages.success(request, "CAE routing saved. Review the preview before importing historical escalations. Existing CRM assignments are unchanged.")
+                return redirect("crm_legacy_routing")
+        elif action == "backfill":
+            try:
+                review = signing.loads(request.POST.get("preview", ""), salt="legacy-cae-backfill", max_age=1800)
+                if review["user"] != request.user.pk or request.POST.get("confirmed") != "yes":
+                    raise signing.BadSignature
+            except (signing.BadSignature, KeyError, TypeError):
+                messages.error(request, "Confirm the current preview before importing; previews expire after 30 minutes.")
+            else:
+                created, skipped = legacy_handoffs.backfill(request.user, review["targets"])
+                messages.success(request, f"Historical import completed: {created} CAE leads added; {skipped} unchanged or no longer eligible. Original outreach records were preserved.")
+                return redirect("crm_legacy_routing")
+    rows = legacy_handoffs.preview()
+    targets = [(row["prospect"].pk, row["executive"].pk) for row in rows if not row["reason"]]
+    response = render(request, "crm/legacy_routing.html", {
+        "form": form, "rows": rows, "ready_count": len(targets),
+        "blocked_count": len(rows) - len(targets),
+        "preview_token": signing.dumps({"user": request.user.pk, "targets": targets}, salt="legacy-cae-backfill", compress=True),
+    })
+    response["Cache-Control"] = "private, no-store"
+    return response
 
 
 def activity_page(request, lead):

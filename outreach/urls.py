@@ -26,6 +26,7 @@ urlpatterns = [
     path("crm/opportunities/", crm_views.opportunity_list, name="crm_opportunity_list"),
     path("crm/opportunities/<int:pk>/", crm_views.opportunity_detail, name="crm_opportunity_detail"),
     path("system/crm-review/", crm_views.migration_review, name="crm_migration_review"),
+    path("system/legacy-escalations/", crm_views.legacy_routing, name="crm_legacy_routing"),
     path("system/crm-review/<int:pk>/", crm_views.migrate_candidate, name="crm_migrate_candidate"),
     path("companies/export/<str:file_format>/", views.company_export, name="company_export"),
     path("api-access/", api.api_access, name="api_access"),

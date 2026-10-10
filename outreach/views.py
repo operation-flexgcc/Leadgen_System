@@ -7,7 +7,7 @@ from django.contrib.auth.views import redirect_to_login
 from django.contrib.auth import SESSION_KEY
 from django.contrib.sessions.models import Session
 from django.core.paginator import Paginator
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.db.models.deletion import ProtectedError
 from django.db.models import Count, F, Q
@@ -33,6 +33,7 @@ from .forms import (
 from .models import Outreach, Profile, Prospect, ProspectImportBatch
 from .permissions import active_role, assigned_roles, is_account_executive, is_manager, is_submission_user, is_system_admin, role_membership_query
 from .workflows import sync_prospect_from_outreach
+from .legacy_handoffs import ensure_handoff
 
 
 REQUIRED_HEALTH_TABLES = {
@@ -45,6 +46,7 @@ REQUIRED_HEALTH_TABLES = {
     "outreach_opportunity",
     "outreach_crmactivity",
     "outreach_profilerole",
+    "outreach_foundercaeassignment",
     "socialaccount_socialaccount",
 }
 
@@ -282,11 +284,18 @@ def prospect_create(request):
         return redirect("crm_lead_list")
     form = ProspectForm(request.POST or None, user=request.user)
     if request.method == "POST" and form.is_valid():
-        prospect = form.save(commit=False)
-        prospect.created_by = request.user
-        prospect.save()
-        messages.success(request, f"{prospect.company_name} was added.")
-        return redirect(prospect)
+        try:
+            with transaction.atomic():
+                prospect = form.save(commit=False)
+                prospect.created_by = request.user
+                prospect.save()
+                if prospect.founder_escalation_required:
+                    ensure_handoff(prospect, request.user)
+        except ValidationError as error:
+            form.add_error(None, "; ".join(error.messages))
+        else:
+            messages.success(request, f"{prospect.company_name} was added.")
+            return redirect(prospect)
     return render(request, "outreach/prospect_form.html", {"form": form, "title": "Add prospect"})
 
 
@@ -397,16 +406,23 @@ def prospect_bulk_import_rollback(request, batch_id):
 
 @login_required
 @require_http_methods(["GET", "POST"])
+@transaction.atomic
 def prospect_update(request, pk):
-    prospect = get_scoped_prospect(request.user, pk)
+    prospect = get_object_or_404(
+        scoped_prospects(request.user).select_related(None).select_for_update(), pk=pk
+    )
     if not is_manager(request.user) and prospect.owner_id != request.user.id:
         messages.error(request, "Claim this prospect before editing its research or follow-up details.")
         return redirect(prospect)
     form = ProspectForm(request.POST or None, instance=prospect, user=request.user)
     if request.method == "POST" and form.is_valid():
-        prospect = form.save()
-        messages.success(request, f"{prospect.company_name} was updated.")
-        return redirect(prospect)
+        try:
+            prospect = form.save()
+        except ValidationError as error:
+            form.add_error(None, "; ".join(error.messages))
+        else:
+            messages.success(request, f"{prospect.company_name} was updated.")
+            return redirect(prospect)
     return render(
         request,
         "outreach/prospect_form.html",
@@ -464,10 +480,12 @@ def outreach_add(request, pk):
             try:
                 with transaction.atomic():
                     outreach.save()
+                    sync_prospect_from_outreach(prospect, outreach, request.user)
             except IntegrityError:
                 messages.error(request, "Another outreach was added at the same time. Please try again.")
+            except ValidationError as error:
+                form.add_error(None, "; ".join(error.messages))
             else:
-                sync_prospect_from_outreach(prospect, outreach)
                 messages.success(request, f"Outreach {outreach.sequence_number} was recorded.")
                 return redirect(prospect)
     outreaches = prospect.outreaches.select_related("recorded_by").all()
@@ -512,17 +530,25 @@ def prospect_claim(request, pk):
 
 @login_required
 @require_http_methods(["GET", "POST"])
+@transaction.atomic
 def outreach_update(request, pk):
     outreach = get_object_or_404(Outreach.objects.select_related("prospect"), pk=pk)
     prospect = get_scoped_prospect(request.user, outreach.prospect_id)
+    prospect = Prospect.objects.select_for_update().get(pk=prospect.pk)
+    outreach = Outreach.objects.select_for_update().get(pk=pk)
     if prospect.owner_id != request.user.id and not is_manager(request.user):
         raise PermissionDenied("Claim this prospect before editing outreach history.")
     form = OutreachForm(request.POST or None, instance=outreach, prospect=prospect)
     if request.method == "POST" and form.is_valid():
-        outreach = form.save()
-        sync_prospect_from_outreach(prospect, outreach)
-        messages.success(request, f"Outreach {outreach.sequence_number} was updated.")
-        return redirect(prospect)
+        try:
+            with transaction.atomic():
+                outreach = form.save()
+                sync_prospect_from_outreach(prospect, outreach, request.user)
+        except ValidationError as error:
+            form.add_error(None, "; ".join(error.messages))
+        else:
+            messages.success(request, f"Outreach {outreach.sequence_number} was updated.")
+            return redirect(prospect)
     return render(
         request,
         "outreach/outreach_form.html",

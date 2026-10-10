@@ -30,6 +30,8 @@ class Escalation(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="submitted_escalations",
+        null=True,
+        blank=True,
     )
     source_channel = models.CharField(max_length=30, editable=False)
     # Unknown dates on reviewed historical records must not become invented dates.
@@ -59,9 +61,12 @@ class Escalation(models.Model):
         errors = {}
         if (
             self.assigned_to_id
-            and not self.assigned_to.profile.has_role(Profile.Role.ACCOUNT_EXECUTIVE)
+            and (
+                not self.assigned_to.is_active
+                or not self.assigned_to.profile.has_role(Profile.Role.ACCOUNT_EXECUTIVE)
+            )
         ):
-            errors["assigned_to"] = "Choose a client account executive."
+            errors["assigned_to"] = "Choose an active client account executive."
         if bool(self.next_action.strip()) != bool(self.next_action_date):
             errors["next_action_date"] = "Set the next action and its date together."
         if self.status == self.Status.DISCOVERY_SCHEDULED:

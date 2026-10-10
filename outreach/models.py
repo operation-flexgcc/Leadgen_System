@@ -75,6 +75,28 @@ def normalized_company_key(website):
     return host
 
 
+class FounderCAEAssignment(models.Model):
+    """Explicit legacy founder-account routing; never infer recipients from names."""
+
+    founder_account = models.CharField(max_length=30, unique=True)
+    executive = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="founder_cae_assignments"
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="updated_cae_assignments"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        if self.founder_account not in Prospect.FounderAccount.values:
+            raise ValidationError({"founder_account": "Choose a recognized founder account."})
+        if self.executive_id and (
+            not self.executive.is_active
+            or not self.executive.profile.has_role(Profile.Role.ACCOUNT_EXECUTIVE)
+        ):
+            raise ValidationError({"executive": "Choose an active client account executive."})
+
+
 class CompanyIdentity(models.Model):
     """Stable identity shared by every workstream record for one company."""
 

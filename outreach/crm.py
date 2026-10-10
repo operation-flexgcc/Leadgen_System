@@ -19,6 +19,7 @@ from .models import (
     CRMActivity,
     Escalation,
     Opportunity,
+    Outreach,
     Prospect,
     normalized_company_key,
 )
@@ -45,6 +46,7 @@ def review_candidates():
         .filter(
             ~Q(workstream=Prospect.Workstream.LINKEDIN_OUTREACH)
             | Q(founder_escalation_required=True)
+            | Q(outreaches__activity_type__in=[Outreach.ActivityType.FOUNDER_ESCALATION, Outreach.ActivityType.MEETING_HANDOFF])
             | Q(
                 stage__in=[
                     Prospect.Stage.RESPONDED,
@@ -56,6 +58,7 @@ def review_candidates():
             | ~Q(interest_signal="")
         )
         .select_related("owner")
+        .distinct()
         .order_by("company_name", "pk")
     )
 

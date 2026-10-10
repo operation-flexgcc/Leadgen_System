@@ -26,7 +26,7 @@
         {% if lead.prospect.contact_linkedin_url %}<div><dt>LinkedIn</dt><dd><a href="{{ lead.prospect.contact_linkedin_url }}" target="_blank" rel="noopener noreferrer">Contact profile ↗</a></dd></div>{% endif %}
         <div><dt>Executive</dt><dd>{{ lead.assigned_to.get_full_name|default:lead.assigned_to.email }}{% if not lead.assigned_to.is_active %} (inactive — ask a manager to reassign){% endif %}</dd></div>
         <div><dt>Original outreach owner</dt><dd>{{ lead.prospect.owner.get_full_name|default:lead.prospect.owner.email|default:'Unassigned' }}</dd></div>
-        <div><dt>Escalated by</dt><dd>{{ lead.escalated_by.get_full_name|default:lead.escalated_by.email }}</dd></div>
+        <div><dt>Escalated by</dt><dd>{% if lead.escalated_by %}{{ lead.escalated_by.get_full_name|default:lead.escalated_by.email }}{% else %}Unknown (historical){% endif %}</dd></div>
         <div><dt>Escalation date</dt><dd>{{ lead.escalated_at|date:'j M Y, H:i T'|default:'Unknown (historical record)' }}</dd></div>
         <div><dt>Recorded in CRM</dt><dd>{{ lead.created_at|date:'j M Y, H:i T' }}{% if lead.historical %} · Reviewed historical handoff{% endif %}</dd></div>
         <div class="info-full"><dt>Handoff context</dt><dd>{{ lead.context|linebreaksbr }}</dd></div>

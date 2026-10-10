@@ -280,4 +280,5 @@ class RoleMigrationTests(TransactionTestCase):
             self.assertEqual(ApiAccessToken.objects.get(pk=token.pk).role, "inside_sales")
             self.assertEqual(Profile.objects.get(user_id=user.pk).assigned_roles, ["inside_sales"])
         finally:
-            MigrationExecutor(connection).migrate([latest])
+            executor = MigrationExecutor(connection)
+            executor.migrate(executor.loader.graph.leaf_nodes())

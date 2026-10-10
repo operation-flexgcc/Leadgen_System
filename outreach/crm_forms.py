@@ -7,20 +7,18 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .forms import DateInput, DateTimeLocalInput
-from .models import Escalation, Opportunity, Profile, Prospect
+from .models import Escalation, FounderCAEAssignment, Opportunity, Profile, Prospect
 from .permissions import active_role, is_manager, role_membership_query
 
 
-def executives(current=None):
+def executives():
     query = role_membership_query([Profile.Role.ACCOUNT_EXECUTIVE]) & Q(is_active=True)
-    if current:
-        query |= Q(pk=current) & role_membership_query([Profile.Role.ACCOUNT_EXECUTIVE])
     return get_user_model().objects.filter(query).distinct().order_by("first_name", "email")
 
 
 class ExecutiveChoice(forms.ModelChoiceField):
     def label_from_instance(self, obj):
-        return obj.get_full_name() or obj.email
+        return f"{obj.get_full_name()} ({obj.email})" if obj.get_full_name() else obj.email
 
 
 class StyledForm:
@@ -35,6 +33,32 @@ class MeetingWallTimeField(forms.DateTimeField):
         # UTC parsing avoids unrelated DST validation in the application timezone.
         with timezone.override(datetime_timezone.utc):
             return super().to_python(value)
+
+
+class LegacyRoutingForm(StyledForm, forms.Form):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        current = dict(FounderCAEAssignment.objects.values_list("founder_account", "executive_id"))
+        for key, label in Prospect.FounderAccount.choices:
+            self.fields[key] = ExecutiveChoice(
+                queryset=executives(), required=False, label=label,
+                initial=current.get(key), empty_label="Leave unchanged / not configured",
+                help_text="Select the existing active CAE account for this founder. Manager-only accounts are excluded.",
+            )
+        self.style()
+
+    def save(self, actor):
+        from django.db import transaction
+
+        with transaction.atomic():
+            for key, executive in self.cleaned_data.items():
+                if executive:
+                    route = FounderCAEAssignment.objects.filter(founder_account=key).first()
+                    route = route or FounderCAEAssignment(founder_account=key)
+                    route.executive = executive
+                    route.updated_by = actor
+                    route.full_clean()
+                    route.save()
 
 
 class SubmissionForm(StyledForm, forms.ModelForm):
@@ -193,7 +217,7 @@ class LeadUpdateForm(StyledForm, forms.ModelForm):
         ]
         if is_manager(user):
             self.fields["assigned_to"] = ExecutiveChoice(
-                queryset=executives(self.instance.assigned_to_id),
+                queryset=executives(),
                 label="Account executive",
             )
         else:
@@ -291,7 +315,7 @@ class OpportunityForm(StyledForm, forms.ModelForm):
                 if v not in {Opportunity.Stage.WON, Opportunity.Stage.LOST}
             ]
         if is_manager(user):
-            self.fields["assigned_to"].queryset = executives(lead.assigned_to_id)
+            self.fields["assigned_to"].queryset = executives()
             self.initial["assigned_to"] = lead.assigned_to_id
         else:
             self.fields.pop("assigned_to")

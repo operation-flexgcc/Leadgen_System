@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block main_class %}page-shell crm-shell{% endblock %}
+{% block title %}Legacy escalation routing · FlexGCC{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <a class="back-link" href="{% url 'crm_migration_review' %}">← Historical lead review</a>
+  <p class="eyebrow">System administration</p><h1>Legacy escalation routing</h1>
+  <p>Every channel escalates only to an active Client Account Executive (CAE). A Manager-only account is not a recipient. These mappings connect the older founder-account workflow to existing CAE accounts; they never grant roles or reassign existing CRM leads.</p>
+</section>
+<form method="post" class="panel form-panel">
+  {% csrf_token %}<input type="hidden" name="action" value="save_routes">
+  <h2>1. Confirm existing CAE accounts</h2>
+  {% include 'crm/fields.html' %}
+  <div class="form-actions"><button class="button" type="submit">Save CAE routing</button></div>
+</form>
+<section class="panel form-panel">
+  <h2>2. Review historical escalations</h2>
+  <p>{{ ready_count }} ready to import · {{ blocked_count }} need individual review.</p>
+  <p>Only records explicitly marked escalated, or with an escalation/meeting-handoff activity, appear here. Replies, interest and founder selection alone are not imported. Original records remain unchanged. Unknown original dates and actors stay unknown; date-only evidence is retained in the handoff context. New CRM records start as New, not as sales opportunities.</p>
+  <div class="table-wrap"><table><thead><tr><th>Company</th><th>Channel / founder</th><th>CAE recipient</th><th>Review result</th></tr></thead><tbody>
+    {% for row in rows %}<tr>
+      <td><a href="{{ row.prospect.get_absolute_url }}">{{ row.prospect.company_name }}</a></td>
+      <td>{{ row.prospect.get_workstream_display }}<span class="cell-secondary">{{ row.prospect.get_founder_account_display|default:'No founder selected' }}</span></td>
+      <td>{% if row.executive %}{{ row.executive.get_full_name }}<span class="cell-secondary">{{ row.executive.email }}</span>{% else %}Unresolved{% endif %}</td>
+      <td>{% if row.reason %}{{ row.reason }} <a href="{% url 'crm_migrate_candidate' row.prospect.pk %}">Review individually →</a>{% else %}Ready{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="4">No unmigrated explicit legacy escalations remain.</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% if ready_count %}<form method="post">
+    {% csrf_token %}<input type="hidden" name="action" value="backfill"><input type="hidden" name="preview" value="{{ preview_token }}">
+    <p><label><input type="checkbox" name="confirmed" value="yes" required> I reviewed the recipients above and approve importing these {{ ready_count }} historical escalations.</label></p>
+    <button class="button" type="submit">Import reviewed escalations</button>
+  </form>{% endif %}
+</section>
+{% endblock %}

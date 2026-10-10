@@ -81,6 +81,8 @@ def form_error(form):
 
 
 def person(user):
+    if user is None:
+        return None
     return {
         "id": user.pk,
         "name": user.get_full_name() or user.email,

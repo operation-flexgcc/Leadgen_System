@@ -1,7 +1,8 @@
 from .models import Outreach, Prospect
+from .legacy_handoffs import ESCALATION_ACTIVITIES, ensure_handoff
 
 
-def sync_prospect_from_outreach(prospect, outreach):
+def sync_prospect_from_outreach(prospect, outreach, actor=None):
     """Apply the prospect state changes implied by one outreach record."""
     update_fields = set()
     if prospect.stage == Prospect.Stage.ELIGIBLE:
@@ -32,7 +33,7 @@ def sync_prospect_from_outreach(prospect, outreach):
     ) and not prospect.material_shared:
         prospect.material_shared = Prospect.MaterialShared.ONE_PAGE
         update_fields.add("material_shared")
-    elif outreach.activity_type == Outreach.ActivityType.FOUNDER_ESCALATION:
+    elif outreach.activity_type in ESCALATION_ACTIVITIES:
         prospect.founder_escalation_required = True
         if outreach.response:
             prospect.founder_escalation_notes = outreach.response
@@ -41,3 +42,5 @@ def sync_prospect_from_outreach(prospect, outreach):
     if update_fields:
         update_fields.add("updated_at")
         prospect.save(update_fields=update_fields)
+    if outreach.activity_type in ESCALATION_ACTIVITIES:
+        ensure_handoff(prospect, actor or outreach.recorded_by, outreach=outreach)

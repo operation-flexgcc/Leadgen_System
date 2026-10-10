@@ -27,6 +27,7 @@ from outreach.models import (
     ApiAccessToken,
     ApiRefreshToken,
     CompanyUpdateAudit,
+    FounderCAEAssignment,
     Outreach,
     OutreachUpdateAudit,
     Profile,
@@ -466,6 +467,10 @@ class ProspectWorkflowApiTests(CompanyApiTestMixin, TestCase):
         )
 
     def test_manager_updates_complete_founder_section_and_new_flags_with_audit(self):
+        executive = self.make_user("sunit-cae@example.com", Profile.Role.ACCOUNT_EXECUTIVE)
+        FounderCAEAssignment.objects.create(
+            founder_account=Prospect.FounderAccount.SUNIT_KALA, executive=executive, updated_by=self.manager,
+        )
         response = self.patch_prospect(
             self.manager,
             {
@@ -475,7 +480,7 @@ class ProspectWorkflowApiTests(CompanyApiTestMixin, TestCase):
                 "founder_escalation_required": True,
                 "founder_escalation_notes": "Founder should answer the pricing question.",
                 "prospect_sent": True,
-                "is_not_eligible": True,
+                "is_not_eligible": False,
             },
         )
 
@@ -488,7 +493,8 @@ class ProspectWorkflowApiTests(CompanyApiTestMixin, TestCase):
         )
         self.assertTrue(self.prospect.founder_escalation_required)
         self.assertTrue(self.prospect.prospect_sent)
-        self.assertTrue(self.prospect.is_not_eligible)
+        self.assertFalse(self.prospect.is_not_eligible)
+        self.assertEqual(self.prospect.escalation.assigned_to, executive)
         self.assertEqual(response.json()["modified_by"]["name"], "Meera Manager")
         audit = ProspectUpdateAudit.objects.get(prospect=self.prospect)
         self.assertEqual(audit.modified_by, self.manager)
@@ -692,6 +698,10 @@ class ProspectSectionApiTests(CompanyApiTestMixin, TestCase):
         self.assertEqual(ProspectUpdateAudit.objects.count(), 0)
 
     def test_founder_linkedin_api_escalates_after_interest_and_acceptance(self):
+        executive = self.make_user("kandarp-cae@example.com", Profile.Role.ACCOUNT_EXECUTIVE)
+        FounderCAEAssignment.objects.create(
+            founder_account=Prospect.FounderAccount.KANDARP_SONI, executive=executive, updated_by=self.manager,
+        )
         interest_response = self.patch_section(
             "api_interest_handoff",
             {

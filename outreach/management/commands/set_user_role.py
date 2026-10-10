@@ -17,7 +17,9 @@ class Command(BaseCommand):
         if not user:
             raise CommandError(f"No user exists with email {email}. Ask them to sign in once first.")
         profile, _ = Profile.objects.get_or_create(user=user)
-        if Profile.Role.ACCOUNT_EXECUTIVE not in options["role"] and user.assigned_escalations.exists():
-            raise CommandError("Reassign this executive's CRM records before removing their executive role.")
+        if Profile.Role.ACCOUNT_EXECUTIVE not in options["role"] and (
+            user.assigned_escalations.exists() or user.founder_cae_assignments.exists()
+        ):
+            raise CommandError("Reassign this executive's CRM records and legacy escalation routes before removing their executive role.")
         profile.set_roles(options["role"])
         self.stdout.write(self.style.SUCCESS(f"Set {email} to {profile.roles_display}."))

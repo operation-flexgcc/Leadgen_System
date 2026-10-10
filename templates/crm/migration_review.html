@@ -2,6 +2,7 @@
 {% block main_class %}page-shell crm-shell{% endblock %}
 {% block title %}Historical lead review · FlexGCC{% endblock %}
 {% block content %}
+<p><a class="button button-secondary" href="{% url 'crm_legacy_routing' %}">Legacy escalation routing and backfill →</a></p>
 <section class="page-heading"><a class="back-link" href="{% url 'crm_lead_list' %}">← Escalated leads</a><p class="eyebrow">System administration</p><h1>Review historical leads</h1><p>These are candidates, not approved handoffs. Review each record, select an executive and confirm its context. Original records stay unchanged; nothing is converted automatically.</p></section>
 <form method="get" class="panel crm-filters"><div class="field"><label for="review-search">Company or contact</label><input id="review-search" name="search" value="{{ search }}" class="form-control"></div><button class="button button-small" type="submit">Search</button></form>
 <section class="panel"><div class="table-wrap"><table><thead><tr><th>Company / contact</th><th>Source</th><th>Original owner</th><th>Original stage</th><th>Review</th></tr></thead><tbody>
