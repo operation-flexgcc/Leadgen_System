@@ -325,7 +325,7 @@ UNCHANGED_EMPTY_FIELDS = (
 
 
 def _prospect_is_unchanged_since_import(prospect, batch, snapshot):
-    if prospect.outreaches.exists() or prospect.update_audits.exists():
+    if hasattr(prospect, "escalation") or prospect.outreaches.exists() or prospect.update_audits.exists():
         return False
     expected_values = {
         "owner_id": batch.owner_id,
@@ -380,7 +380,7 @@ def rollback_prospect_import(*, batch_id, rolled_back_by):
                     prospect.company_name,
                     prospect.website,
                     prospect.location,
-                    "Not removed because this prospect was modified or now has outreach/API activity.",
+                    "Not removed because this prospect was modified or now has outreach/API activity or an executive handoff.",
                 )
                 | {"prospect_id": prospect.pk}
             )

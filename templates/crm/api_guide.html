@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block main_class %}page-shell crm-shell{% endblock %}
+{% block title %}Executive CRM API · FlexGCC{% endblock %}
+{% block content %}
+<section class="page-heading"><a class="back-link" href="{% url 'api_access' %}">← API access</a><p class="eyebrow">Integration guide</p><h1>Executive CRM API</h1><p>Existing outreach endpoints and tokens remain compatible. Executive handoff is explicit; the old founder-escalation flag does not create a CRM lead.</p></section>
+<section class="panel detail-panel api-docs-copy">
+<h2>Authentication and permissions</h2><p>Use <code>Authorization: Bearer &lt;access_token&gt;</code> and <code>Content-Type: application/json</code>. Executives can read all CRM leads and opportunities, but update only their assigned records. Managers and system administrators can edit and reassign. Outreach users can read their own handoffs but cannot edit CRM follow-up. Only sales interns, inside sales and managers may submit new leads.</p>
+<h2>Endpoints</h2><div class="table-wrap"><table><thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead><tbody>
+<tr><td>GET / POST</td><td><code>/api/v1/crm/leads/</code></td><td>List visible leads / submit a ready lead</td></tr>
+<tr><td>POST</td><td><code>/api/v1/crm/prospects/&lt;id&gt;/escalate/</code></td><td>Explicit handoff of an existing owned prospect</td></tr>
+<tr><td>GET / PATCH</td><td><code>/api/v1/crm/leads/&lt;id&gt;/</code></td><td>Read / update executive follow-up</td></tr>
+<tr><td>POST</td><td><code>/api/v1/crm/leads/&lt;id&gt;/convert/</code></td><td>Move to sales pipeline</td></tr>
+<tr><td>POST</td><td><code>/api/v1/crm/leads/&lt;id&gt;/comments/</code></td><td>Append a dated comment</td></tr>
+<tr><td>GET</td><td><code>/api/v1/crm/leads/&lt;id&gt;/activity/</code></td><td>Read paginated audit and comments</td></tr>
+<tr><td>GET</td><td><code>/api/v1/crm/opportunities/</code></td><td>List sales opportunities</td></tr>
+<tr><td>GET / PATCH</td><td><code>/api/v1/crm/opportunities/&lt;id&gt;/</code></td><td>Read / update a sales opportunity</td></tr>
+</tbody></table></div>
+<h2>Submit a lead</h2><p>Required: company_name (200 characters), contact_name (200), context (5,000), assigned_to (active executive user ID), and at least one of contact_email (254), contact_phone (50) or contact_linkedin_url (500). Optional: website (500), location (200), contact_title (200). A manager must provide workstream: <code>intern</code> or <code>inside_sales</code>; other users' workstream comes from their role. Duplicate companies in a channel must be handed off from the existing prospect.</p>
+<pre>POST /api/v1/crm/leads/
+{"company_name":"Example Advisory","contact_name":"Asha Rao",
+ "contact_email":"asha@example.com","assigned_to":12,
+ "context":"Requested a discovery call about a GCC team."}</pre>
+<h2>Handoff an existing prospect</h2><p>Send assigned_to (integer) and context (up to 5,000 characters). LinkedIn also requires <code>response_confirmed: true</code>, meaning an actual client reply was received. An unassigned prospect must first be claimed. Repeating a handoff returns the same lead without changing its assignment. Historical migration is administrator-reviewed in the browser, not exposed as a bulk API.</p>
+<h2>Update executive follow-up</h2><p>PATCH requires the integer <code>version</code> from the latest GET and at least one changed field. Fields: status, next_action (250), next_action_date (YYYY-MM-DD), discovery_at (ISO 8601 timestamp with offset), discovery_timezone (IANA name, 80), discovery_outcome (3,000), drop_reason (2,000), comment (5,000). Managers can also send assigned_to. Set action and date together; a scheduled meeting needs time and zone; completed discovery needs an outcome; dropping needs a reason. Converted leads are updated through their sales opportunity.</p>
+<p>Statuses: {% for value, label in statuses %}<code>{{ value }}</code> ({{ label }}){% if not forloop.last %}, {% endif %}{% endfor %}. <code>converted</code> is set by conversion, never PATCH.</p>
+<pre>PATCH /api/v1/crm/leads/23/
+{"version":1,"status":"discovery_scheduled",
+ "discovery_at":"2026-10-20T09:00:00-05:00",
+ "discovery_timezone":"America/Chicago",
+ "next_action":"Run discovery","next_action_date":"2026-10-20"}</pre>
+<h2>Convert and manage a sales opportunity</h2><p>Conversion requires name (200), requirements (5,000), stage, probability (integer 0–100) and decision_note (2,000). Optional fields: estimated_value (nonnegative decimal, up to 13 integer digits and 2 decimal places), currency (three letters, required with value), expected_close_date, next_action (250), next_action_date, closure_reason (2,000), comment (5,000). Managers may reassign with assigned_to. Value may remain unknown. Repeated conversion returns the same opportunity. Reopen a dropped lead before converting it.</p>
+<p>Stages: {% for value, label in stages %}<code>{{ value }}</code> ({{ label }}){% if not forloop.last %}, {% endif %}{% endfor %}. New opportunities cannot start won/lost. Opportunity PATCH supports the same fields except decision_note, and requires version. Won/lost requires closure_reason, sets closed_at and normalizes probability to 100/0. Reopening clears closed_at.</p>
+<pre>POST /api/v1/crm/leads/23/convert/
+{"name":"Example GCC engagement","requirements":"Build a team",
+ "stage":"qualified","probability":25,"estimated_value":"25000.00",
+ "currency":"USD","decision_note":"Discovery confirmed fit."}</pre>
+<h2>Comments, lists and errors</h2><p>Post <code>{"comment":"Meeting confirmed."}</code> to append a comment. Comments and changes are append-only, with actor and timestamp. Lists return count, page, pages, results; page size is 25. Filters: search, assigned_to, source_channel, status (lead status or opportunity stage), due (today/overdue/upcoming/none), date_from/date_to (escalation date), and close_from/close_to (opportunities only). Date filters use YYYY-MM-DD. Due filters exclude terminal records. Unknown historical escalation dates remain null and do not match date ranges.</p>
+<p>GET returns source contact details, ownership, version and timestamps; monetary values are decimal strings. PATCH preserves omitted fields. Blank optional fields can be cleared with null or an empty string. Unsupported fields and invalid types are rejected: 400 validation, 401 missing/invalid token, 403 permission denied, 404 not visible/not found, 409 stale version. Errors contain error and, for field validation, field_errors. No email, calendar event or external message is sent by these endpoints.</p>
+</section>
+{% endblock %}

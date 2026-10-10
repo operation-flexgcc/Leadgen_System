@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from outreach.models import Outreach, Profile, Prospect, ProspectImportBatch
+from outreach.models import Escalation, Outreach, Profile, Prospect, ProspectImportBatch
 
 
 class BulkImportTestMixin:
@@ -70,6 +70,17 @@ class BulkImportTestMixin:
 
 
 class BulkProspectImportTests(BulkImportTestMixin, TestCase):
+    def test_rollback_retains_a_record_with_an_executive_handoff(self):
+        self.upload(self.intern, [["Handoff firm", "https://handoff.example.com", "Chicago"]])
+        prospect = Prospect.objects.get(company_name="Handoff firm")
+        executive = self.make_user("executive-import@example.com", Profile.Role.ACCOUNT_EXECUTIVE)
+        Escalation.objects.create(prospect=prospect, assigned_to=executive, escalated_by=self.intern, source_channel="intern", context="Historical handoff")
+        from outreach.bulk_import import rollback_prospect_import
+        batch, deleted, protected = rollback_prospect_import(batch_id=prospect.import_batch_id, rolled_back_by=self.intern)
+        self.assertEqual(deleted, 0)
+        self.assertEqual(len(protected), 1)
+        self.assertTrue(Prospect.objects.filter(pk=prospect.pk).exists())
+
     def setUp(self):
         self.intern = self.make_user(
             "intern-import@example.com",
@@ -94,7 +105,7 @@ class BulkProspectImportTests(BulkImportTestMixin, TestCase):
 
     def test_bulk_import_is_discoverable_and_requires_login(self):
         protected = self.client.get(reverse("prospect_bulk_import"))
-        self.client.force_login(self.intern)
+        self.client.force_login(self.manager)
         add_page = self.client.get(reverse("prospect_create"))
         dashboard = self.client.get(reverse("dashboard"))
 

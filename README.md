@@ -1,6 +1,10 @@
 # FlexGCC Outreach
 
-FlexGCC Outreach is a Google-authenticated partner-outreach tracker for sales interns, inside sales, founder-LinkedIn operators, managers, and system administrators.
+FlexGCC Outreach is a Google-authenticated outreach and sales CRM for sales interns, inside sales, LinkedIn operators, client account executives, managers, and system administrators.
+
+## Executive CRM update
+
+Sales interns and inside sales submit a short lead form only when ready for executive follow-up. LinkedIn operators keep their existing workflow and explicitly escalate a responding prospect to a selected executive. Executive ownership is separate from the original outreach owner. All executives can see the shared lead queue and sales pipeline; only the assigned executive or a manager can update a record. See [the CRM rollout and operating guide](docs/executive-crm.md) for migration, permissions, validation, API contracts and release checks. In-app API documentation is available at `/api-access/crm/`.
 
 ## Handover documents
 
@@ -12,7 +16,7 @@ FlexGCC Outreach is a Google-authenticated partner-outreach tracker for sales in
 
 ## Repository migration status
 
-The working source repository is `https://github.com/operation-flexgcc/Leadgen_System`, configured locally as `origin`. The production source repository is `https://github.com/FlexGCC/leadgen`, configured locally as `production`. Production deployment workflows remain manual-only until infrastructure ownership, secrets, and release approvals are explicitly configured. The handover documents retain the earlier repository identity as historical source provenance.
+The canonical source and production release repository is [operation-flexgcc/Leadgen_System](https://github.com/operation-flexgcc/Leadgen_System), configured locally as `origin`, with release branch `main`. The production system is [leadgen.flexgcc.com](https://leadgen.flexgcc.com/). Earlier repository names in handover documents and any local `production` remote are historical, not deployment targets. CI runs on pull requests and main; the deployment workflows in this checkout use manual dispatch.
 
 ## What is implemented
 
@@ -27,13 +31,14 @@ The working source repository is `https://github.com/operation-flexgcc/Leadgen_S
 - Rotating API credentials, audited company-detail updates, and atomic prospect claiming by company ID.
 - Auditable bulk prospect ingestion from three-column CSV files, with row-level validation, duplicate reporting, recent-batch history, and safe batch rollback.
 - Google OAuth login with exact-email pre-provisioning and optional Google-domain restriction.
-- Five extensible user classes:
+- Six extensible user classes:
 
 | Class | Access |
 |---|---|
-| Sales intern | Qualifies firms, originates outreach, and sees assigned prospects plus its unassigned role queue |
-| Inside sales | Runs multi-channel cadence and sees assigned prospects plus its unassigned role queue |
+| Sales intern | Submits ready leads to an executive; reads own handoffs and retains outreach history |
+| Inside sales | Submits ready leads to an executive; reads own handoffs and retains outreach history |
 | LinkedIn outreach | Operates one founder account per prospect and sees assigned prospects plus its unassigned role queue |
+| Client account executive | Reads all escalated leads and opportunities; updates only assigned records |
 | Manager | Sees and updates all prospects across all three outreach classes |
 | System admin | Has manager visibility and adds, edits, disables, restores, or deletes users |
 

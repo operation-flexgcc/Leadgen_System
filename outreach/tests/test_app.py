@@ -148,7 +148,7 @@ class DashboardPermissionTests(AppTestMixin, TestCase):
 
     def test_intern_sees_only_assigned_prospects(self):
         self.client.force_login(self.intern)
-        response = self.client.get(reverse("dashboard"))
+        response = self.client.get(reverse("outreach_history"))
         self.assertContains(response, "Own Company")
         self.assertNotContains(response, "Other Company")
 
@@ -210,7 +210,7 @@ class DashboardPermissionTests(AppTestMixin, TestCase):
         self.client.force_login(self.intern)
 
         claimed_response = self.client.get(
-            reverse("dashboard"),
+            reverse("outreach_history"),
             {"claim_status": "claimed"},
         )
         self.assertContains(claimed_response, self.own.company_name)
@@ -218,7 +218,7 @@ class DashboardPermissionTests(AppTestMixin, TestCase):
         self.assertNotContains(claimed_response, self.other.company_name)
 
         unclaimed_response = self.client.get(
-            reverse("dashboard"),
+            reverse("outreach_history"),
             {"claim_status": "unclaimed"},
         )
         self.assertContains(unclaimed_response, unclaimed_intern.company_name)
@@ -265,8 +265,8 @@ class DashboardPermissionTests(AppTestMixin, TestCase):
         for number in range(20):
             self.make_prospect(self.intern, f"Company {number:02}")
         self.client.force_login(self.intern)
-        first_page = self.client.get(reverse("dashboard"))
-        second_page = self.client.get(reverse("dashboard"), {"page": 2})
+        first_page = self.client.get(reverse("outreach_history"))
+        second_page = self.client.get(reverse("outreach_history"), {"page": 2})
         self.assertEqual(len(first_page.context["page_obj"]), 20)
         self.assertEqual(len(second_page.context["page_obj"]), 1)
 
@@ -294,7 +294,7 @@ class MultiRoleWorkflowTests(AppTestMixin, TestCase):
             personalization_note="Chicago operations practice.",
         )
 
-    def test_inside_sales_user_can_create_own_workstream_record(self):
+    def test_inside_sales_user_is_routed_to_simple_submission(self):
         self.client.force_login(self.inside_sales)
         response = self.client.post(
             reverse("prospect_create"),
@@ -305,14 +305,11 @@ class MultiRoleWorkflowTests(AppTestMixin, TestCase):
                 contact_email="partner@inside-sales-advisory.example.com",
             ),
         )
-        prospect = Prospect.objects.get(company_name="Inside Sales Advisory")
-        self.assertRedirects(response, prospect.get_absolute_url())
-        self.assertEqual(prospect.owner, self.inside_sales)
-        self.assertEqual(prospect.workstream, Prospect.Workstream.INSIDE_SALES)
-        self.assertEqual(prospect.stage, Prospect.Stage.ELIGIBLE)
+        self.assertRedirects(response, reverse("crm_submit"))
+        self.assertFalse(Prospect.objects.filter(company_name="Inside Sales Advisory").exists())
 
     def test_prospect_flags_have_distinct_form_sections_and_are_saved(self):
-        self.client.force_login(self.intern)
+        self.client.force_login(self.manager)
         form_response = self.client.get(reverse("prospect_create"))
         self.assertContains(form_response, "<h2>Eligibility</h2>", html=True)
         self.assertContains(form_response, "Is not eligible")
@@ -578,13 +575,13 @@ class UnassignedProspectQueueTests(AppTestMixin, TestCase):
 
     def test_frontline_user_sees_only_the_unassigned_queue_for_their_role(self):
         self.client.force_login(self.intern)
-        response = self.client.get(reverse("dashboard"))
+        response = self.client.get(reverse("outreach_history"))
         self.assertContains(response, self.prospect.company_name)
         self.assertContains(response, "Eligible")
         self.assertNotContains(response, "Research required")
 
         self.client.force_login(self.inside_sales)
-        self.assertNotContains(self.client.get(reverse("dashboard")), self.prospect.company_name)
+        self.assertNotContains(self.client.get(reverse("outreach_history")), self.prospect.company_name)
 
     def test_claim_is_atomic_and_removes_record_from_other_users_queue(self):
         self.client.force_login(self.intern)

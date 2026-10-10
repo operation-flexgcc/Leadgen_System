@@ -107,6 +107,12 @@ class ProspectForm(forms.ModelForm):
             or getattr(getattr(user, "profile", None), "role", Prospect.Workstream.INTERN)
         )
         self.workstream_value = selected_workstream
+        simplified_handoff = (
+            bool(self.instance.pk)
+            and selected_workstream != Prospect.Workstream.LINKEDIN_OUTREACH
+            and hasattr(self.instance, "escalation")
+        )
+        self.fields["website"].required = not simplified_handoff
 
         for field_name in [
             "short_description",
@@ -117,7 +123,7 @@ class ProspectForm(forms.ModelForm):
             "contact_name",
             "contact_title",
         ]:
-            self.fields[field_name].required = True
+            self.fields[field_name].required = not simplified_handoff or field_name == "contact_name"
 
         if selected_workstream == Prospect.Workstream.LINKEDIN_OUTREACH:
             for field_name in [
@@ -507,6 +513,12 @@ class UserProvisionForm(forms.Form):
             raise forms.ValidationError("A user with this email address already exists.")
         return email
 
+    def clean_role(self):
+        role = self.cleaned_data["role"]
+        if self.instance and role != Profile.Role.ACCOUNT_EXECUTIVE and self.instance.assigned_escalations.exists():
+            raise forms.ValidationError("Reassign this executive's CRM records before changing their role.")
+        return role
+
     def save(self):
         full_name = " ".join(self.cleaned_data["full_name"].split())
         name_parts = full_name.split(" ", 1)
@@ -538,6 +550,7 @@ class UserProvisionForm(forms.Form):
         profile, _ = Profile.objects.get_or_create(user=user)
         profile.role = self.cleaned_data["role"]
         profile.save(update_fields=["role"])
+        user.profile = profile
         email_address = EmailAddress.objects.filter(user=user, primary=True).first()
         if email_address:
             email_address.email = email

@@ -7,12 +7,15 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.urls import reverse
 
+from .crm_models import CRMActivity, Escalation, Opportunity  # noqa: F401
+
 
 class Profile(models.Model):
     class Role(models.TextChoices):
         INTERN = "intern", "Sales intern"
         INSIDE_SALES = "inside_sales", "Inside sales"
         LINKEDIN_OUTREACH = "linkedin_outreach", "LinkedIn outreach"
+        ACCOUNT_EXECUTIVE = "account_executive", "Client account executive"
         MANAGER = "manager", "Manager"
         SYSTEM_ADMIN = "system_admin", "System admin"
 
@@ -110,7 +113,7 @@ class Prospect(models.Model):
         db_index=True,
     )
     company_name = models.CharField(max_length=200, db_index=True)
-    website = models.URLField(max_length=500)
+    website = models.URLField(max_length=500, blank=True)
     short_description = models.TextField(max_length=1000, blank=True)
     location = models.CharField(max_length=200, blank=True)
     consulting_focus = models.CharField(max_length=300, blank=True)
@@ -222,7 +225,7 @@ class Prospect(models.Model):
         company_key = normalized_company_key(self.website)
         if self._state.adding:
             if not company_key:
-                raise ValidationError({"website": "Enter a valid company website before saving."})
+                company_key = f"lead:{uuid.uuid4()}"
             self.company, _ = CompanyIdentity.objects.get_or_create(key=company_key)
         else:
             original = type(self).objects.only("company_id").get(pk=self.pk)

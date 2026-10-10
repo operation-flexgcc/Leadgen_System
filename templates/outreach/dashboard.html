@@ -5,13 +5,13 @@
     <div>
         <p class="eyebrow">{% if current_user_is_manager %}Team overview{% else %}My pipeline and role queue{% endif %}</p>
         <h1>Good {% now "H" as current_hour %}{% if current_hour < "12" %}morning{% elif current_hour < "17" %}afternoon{% else %}evening{% endif %}, {{ user.first_name|default:"there" }}</h1>
-        <p>{% if current_user_is_manager %}Compare activity across every outreach class and operator.{% else %}Prioritize follow-ups and keep every prospect moving through the approved playbook.{% endif %}</p>
+        <p>{% if current_user_is_manager %}Compare activity across every outreach class and operator.{% elif current_user_is_submitter %}Historical outreach records are preserved here. New leads use the simplified submission form.{% else %}Prioritize follow-ups and keep every prospect moving through the approved playbook.{% endif %}</p>
     </div>
     <div class="heading-actions">
         <a class="button-secondary" href="{% url 'company_export' 'csv' %}">Download CSV</a>
         <a class="button-secondary" href="{% url 'company_export' 'xlsx' %}">Download XLSX</a>
         <a class="button-secondary" href="{% url 'prospect_bulk_import' %}">Import CSV</a>
-        <a class="button" href="{% url 'prospect_create' %}">+ Add prospect</a>
+        <a class="button" href="{% url 'prospect_create' %}">{% if current_user_is_submitter %}+ Submit lead{% else %}+ Add prospect{% endif %}</a>
     </div>
 </section>
 
@@ -119,7 +119,7 @@
         {% endif %}
         <div class="filter-actions">
             <button class="button button-small" type="submit">Apply</button>
-            <a class="button-secondary button-small" href="{% url 'dashboard' %}">Clear</a>
+            <a class="button-secondary button-small" href="{% if current_user_is_submitter %}{% url 'outreach_history' %}{% else %}{% url 'dashboard' %}{% endif %}">Clear</a>
         </div>
     </form>
 
