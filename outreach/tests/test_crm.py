@@ -22,7 +22,7 @@ from django.utils import timezone
 from outreach import crm
 from outreach.adapters import FlexGCCSocialAccountAdapter
 from outreach.crm_forms import LeadUpdateForm, OpportunityForm
-from outreach.forms import UserProvisionForm
+from outreach.forms import ProspectForm, UserProvisionForm
 from outreach.models import CRMActivity, Escalation, Opportunity, Outreach, Profile
 from outreach.permissions import is_manager
 from outreach.tests.test_company_api import CompanyApiTestMixin
@@ -120,6 +120,29 @@ class CRMTests(CompanyApiTestMixin, TestCase):
         self.assertIsNone(lead)
         for field in ["contact_name", "contact_email", "context", "assigned_to"]:
             self.assertIn(field, form.errors)
+
+    def test_simple_submission_contact_correction_needs_no_research(self):
+        form, lead = crm.submit_lead(
+            self.intern,
+            {
+                "company_name": "Simple firm",
+                "contact_name": "Partner",
+                "contact_phone": "12345",
+                "assigned_to": self.ae.pk,
+                "context": "Ready",
+            },
+        )
+        self.assertIsNotNone(lead, form.errors)
+        form = ProspectForm(
+            {**model_to_dict(lead.prospect), "contact_name": "Corrected name"},
+            instance=lead.prospect,
+            user=self.intern,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        source = form.save()
+        self.assertEqual(source.contact_name, "Corrected name")
+        self.assertEqual(source.owner_id, self.intern.pk)
+        self.assertEqual(source.escalation.assigned_to_id, self.ae.pk)
 
     def test_linkedin_handoff_explicit_idempotent_and_preserves_owner(self):
         form, rejected = crm.escalate_prospect(

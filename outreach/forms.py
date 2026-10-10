@@ -98,7 +98,6 @@ class ProspectForm(forms.ModelForm):
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
-        self.fields["website"].required = True
         self.fields["meeting_scheduled_at"].input_formats = ["%Y-%m-%dT%H:%M"]
         selected_workstream = (
             self.data.get("workstream")
@@ -108,6 +107,12 @@ class ProspectForm(forms.ModelForm):
             or getattr(getattr(user, "profile", None), "role", Prospect.Workstream.INTERN)
         )
         self.workstream_value = selected_workstream
+        simplified_handoff = (
+            bool(self.instance.pk)
+            and selected_workstream != Prospect.Workstream.LINKEDIN_OUTREACH
+            and hasattr(self.instance, "escalation")
+        )
+        self.fields["website"].required = not simplified_handoff
 
         for field_name in [
             "short_description",
@@ -118,7 +123,7 @@ class ProspectForm(forms.ModelForm):
             "contact_name",
             "contact_title",
         ]:
-            self.fields[field_name].required = True
+            self.fields[field_name].required = not simplified_handoff or field_name == "contact_name"
 
         if selected_workstream == Prospect.Workstream.LINKEDIN_OUTREACH:
             for field_name in [
