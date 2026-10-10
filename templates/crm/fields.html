@@ -1,0 +1,9 @@
+{% for field in form.hidden_fields %}{{ field }}{{ field.errors }}{% endfor %}
+{% if form.non_field_errors %}<div class="form-alert" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+<div class="form-grid">
+    {% for field in form.visible_fields %}
+    <div class="field{% if field.field.widget.input_type == 'checkbox' %} checkbox-field{% endif %}{% if field.name == 'context' or field.name == 'requirements' or field.name == 'comment' or field.name == 'decision_note' %} field-full{% endif %}">
+        {% include 'outreach/field.html' with field=field %}
+    </div>
+    {% endfor %}
+</div>

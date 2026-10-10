@@ -1,11 +1,31 @@
 from django.urls import path
 
-from . import api, views
+from . import api, crm_api, crm_views, views
 
 
 urlpatterns = [
     path("", views.home, name="home"),
     path("dashboard/", views.dashboard, name="dashboard"),
+    path("outreach-history/", views.dashboard, {"history": True}, name="outreach_history"),
+    path("crm/leads/", crm_views.lead_list, name="crm_lead_list"),
+    path("api-access/crm/", crm_views.api_guide, name="crm_api_guide"),
+    path("api/v1/crm/leads/", crm_api.leads, name="api_crm_leads"),
+    path("api/v1/crm/prospects/<int:pk>/escalate/", crm_api.handoff, name="api_crm_handoff"),
+    path("api/v1/crm/leads/<int:pk>/", crm_api.lead_detail, name="api_crm_lead_detail"),
+    path("api/v1/crm/leads/<int:pk>/convert/", crm_api.convert, name="api_crm_convert"),
+    path("api/v1/crm/leads/<int:pk>/comments/", crm_api.comment, name="api_crm_comment"),
+    path("api/v1/crm/leads/<int:pk>/activity/", crm_api.activities, name="api_crm_activity"),
+    path("api/v1/crm/opportunities/", crm_api.opportunities, name="api_crm_opportunities"),
+    path("api/v1/crm/opportunities/<int:pk>/", crm_api.opportunity_detail, name="api_crm_opportunity_detail"),
+    path("crm/submit/", crm_views.submit, name="crm_submit"),
+    path("crm/prospects/<int:pk>/escalate/", crm_views.handoff, name="crm_handoff"),
+    path("crm/leads/<int:pk>/", crm_views.lead_detail, name="crm_lead_detail"),
+    path("crm/leads/<int:pk>/convert/", crm_views.convert, name="crm_convert"),
+    path("crm/leads/<int:pk>/comments/", crm_views.comment, name="crm_comment"),
+    path("crm/opportunities/", crm_views.opportunity_list, name="crm_opportunity_list"),
+    path("crm/opportunities/<int:pk>/", crm_views.opportunity_detail, name="crm_opportunity_detail"),
+    path("system/crm-review/", crm_views.migration_review, name="crm_migration_review"),
+    path("system/crm-review/<int:pk>/", crm_views.migrate_candidate, name="crm_migrate_candidate"),
     path("companies/export/<str:file_format>/", views.company_export, name="company_export"),
     path("api-access/", api.api_access, name="api_access"),
     path(

@@ -118,3 +118,30 @@ class RemoveResearchStageMigrationTests(TransactionTestCase):
             Prospect.objects.get(company_name="Contacted Stage Advisory").stage,
             "contacted",
         )
+
+
+class ExecutiveCRMMigrationTests(TransactionTestCase):
+    def test_additive_migration_preserves_legacy_records_without_creating_handoffs(self):
+        previous = ("outreach", "0009_remove_research_stage")
+        executor = MigrationExecutor(connection)
+        self.addCleanup(self.restore_latest_schema)
+        executor.migrate([previous])
+        apps = executor.loader.project_state([previous]).apps
+        user = apps.get_model("auth", "User").objects.create(username="crm-migration-source")
+        company = apps.get_model("outreach", "CompanyIdentity").objects.create(key="legacy.example.com")
+        prospect = apps.get_model("outreach", "Prospect").objects.create(company=company, created_by=user, owner=user, workstream="inside_sales", stage="interested", company_name="Legacy firm", website="https://legacy.example.com", interest_signal="Requested meeting", comments="Keep all notes")
+        outreach = apps.get_model("outreach", "Outreach").objects.create(prospect=prospect, recorded_by=user, sequence_number=1, medium="email", outreach_date="2026-09-01", response="Client reply")
+        before = {key: value for key, value in prospect.__dict__.items() if key != "_state"}
+        self.restore_latest_schema()
+        executor = MigrationExecutor(connection)
+        apps = executor.loader.project_state(executor.loader.graph.leaf_nodes()).apps
+        saved = apps.get_model("outreach", "Prospect").objects.get(pk=prospect.pk)
+        self.assertEqual({key: value for key, value in saved.__dict__.items() if key != "_state"}, before)
+        self.assertEqual(apps.get_model("outreach", "Outreach").objects.get(pk=outreach.pk).response, "Client reply")
+        self.assertEqual(apps.get_model("outreach", "Escalation").objects.count(), 0)
+        self.assertEqual(apps.get_model("outreach", "Opportunity").objects.count(), 0)
+
+    @staticmethod
+    def restore_latest_schema():
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())

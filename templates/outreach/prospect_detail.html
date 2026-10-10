@@ -13,6 +13,11 @@
         <a class="website-link" href="{{ prospect.website }}" target="_blank" rel="noopener noreferrer">{{ prospect.website }} ↗</a>
     </div>
     <div class="detail-actions">
+        {% if prospect.escalation %}
+        <a class="button-secondary" href="{{ prospect.escalation.get_absolute_url }}">View executive handoff</a>
+        {% elif can_edit_prospect %}
+        <a class="button" href="{% url 'crm_handoff' prospect.pk %}">Escalate to executive</a>
+        {% endif %}
         {% if can_claim_prospect %}
         <form method="post" action="{% url 'prospect_claim' prospect.pk %}">
             {% csrf_token %}

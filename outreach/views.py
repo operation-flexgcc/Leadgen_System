@@ -29,7 +29,7 @@ from .forms import (
     UserProvisionForm,
 )
 from .models import Outreach, Profile, Prospect, ProspectImportBatch
-from .permissions import is_manager, is_system_admin
+from .permissions import is_account_executive, is_manager, is_submission_user, is_system_admin
 from .workflows import sync_prospect_from_outreach
 
 
@@ -39,6 +39,9 @@ REQUIRED_HEALTH_TABLES = {
     "django_session",
     "django_site",
     "outreach_prospect",
+    "outreach_escalation",
+    "outreach_opportunity",
+    "outreach_crmactivity",
     "socialaccount_socialaccount",
 }
 
@@ -152,7 +155,9 @@ def company_export(request, file_format):
 
 
 @login_required
-def dashboard(request):
+def dashboard(request, history=False):
+    if is_account_executive(request.user) or (is_submission_user(request.user) and not history):
+        return redirect("crm_lead_list")
     today = timezone.localdate()
     base_queryset = scoped_prospects(request.user)
     summary = base_queryset.aggregate(
@@ -239,6 +244,10 @@ def dashboard(request):
 @login_required
 @require_http_methods(["GET", "POST"])
 def prospect_create(request):
+    if is_submission_user(request.user):
+        return redirect("crm_submit")
+    if is_account_executive(request.user):
+        return redirect("crm_lead_list")
     form = ProspectForm(request.POST or None, user=request.user)
     if request.method == "POST" and form.is_valid():
         prospect = form.save(commit=False)
@@ -518,6 +527,7 @@ def user_list(request):
         "interns": users.filter(user__is_active=True, role=Profile.Role.INTERN).count(),
         "inside_sales": users.filter(user__is_active=True, role=Profile.Role.INSIDE_SALES).count(),
         "linkedin_outreach": users.filter(user__is_active=True, role=Profile.Role.LINKEDIN_OUTREACH).count(),
+        "executives": users.filter(user__is_active=True, role=Profile.Role.ACCOUNT_EXECUTIVE).count(),
         "managers": users.filter(user__is_active=True, role=Profile.Role.MANAGER).count(),
         "admins": users.filter(user__is_active=True, role=Profile.Role.SYSTEM_ADMIN).count(),
     }

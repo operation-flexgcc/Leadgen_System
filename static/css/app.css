@@ -344,6 +344,24 @@ textarea.form-control { resize: vertical; }
 .google-g { color: #4285f4; font-size: 1.2rem; font-weight: 900; }
 .login-note { margin: 14px 0 0; color: var(--muted); font-size: .73rem; text-align: center; }
 
+.header-inner { height: auto; min-height: 72px; gap: 24px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+.primary-nav { flex-wrap: wrap; gap: 16px; }
+.crm-filters { padding: 22px; margin-bottom: 22px; }
+.crm-shell .form-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding-top: 18px; }
+.crm-shell .detail-panel { padding: 22px; }
+.crm-shell .info-grid { padding: 16px 0; }
+.crm-shell .detail-sidebar { position: static; grid-row: auto; }
+.crm-shell dd { overflow-wrap: anywhere; }
+.crm-filters .form-grid { grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); }
+.crm-readonly { padding: 14px 18px; background: var(--green-soft); border-radius: 10px; }
+.crm-editor { border-top: 1px solid var(--line); padding-top: 16px; }
+.crm-editor > summary { cursor: pointer; color: var(--green); font-weight: 750; margin-bottom: 18px; }
+.crm-activity { list-style: none; padding: 0; margin: 20px 0 0; }
+.crm-activity > li { padding: 16px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.crm-activity small { display: block; color: var(--muted); font-size: .75rem; }
+.crm-activity p { white-space: normal; }
+.crm-activity dd { margin: 3px 0 12px; font-size: .8rem; }
+
 @media (max-width: 1100px) {
     .metric-grid { grid-template-columns: repeat(2, 1fr); }
     .user-metrics { grid-template-columns: repeat(2, 1fr); }

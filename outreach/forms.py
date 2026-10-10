@@ -98,6 +98,7 @@ class ProspectForm(forms.ModelForm):
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
+        self.fields["website"].required = True
         self.fields["meeting_scheduled_at"].input_formats = ["%Y-%m-%dT%H:%M"]
         selected_workstream = (
             self.data.get("workstream")
@@ -507,6 +508,12 @@ class UserProvisionForm(forms.Form):
             raise forms.ValidationError("A user with this email address already exists.")
         return email
 
+    def clean_role(self):
+        role = self.cleaned_data["role"]
+        if self.instance and role != Profile.Role.ACCOUNT_EXECUTIVE and self.instance.assigned_escalations.exists():
+            raise forms.ValidationError("Reassign this executive's CRM records before changing their role.")
+        return role
+
     def save(self):
         full_name = " ".join(self.cleaned_data["full_name"].split())
         name_parts = full_name.split(" ", 1)
@@ -538,6 +545,7 @@ class UserProvisionForm(forms.Form):
         profile, _ = Profile.objects.get_or_create(user=user)
         profile.role = self.cleaned_data["role"]
         profile.save(update_fields=["role"])
+        user.profile = profile
         email_address = EmailAddress.objects.filter(user=user, primary=True).first()
         if email_address:
             email_address.email = email

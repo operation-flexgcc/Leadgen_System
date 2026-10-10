@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block main_class %}page-shell crm-shell{% endblock %}
+{% block title %}{{ title }} · FlexGCC{% endblock %}
+{% block content %}
+<section class="page-heading">
+    <a class="back-link" href="{% url back_url %}">← Back</a>
+    <p class="eyebrow">Executive CRM</p><h1>{{ title }}</h1><p>{{ intro }}</p>
+    {% if prospect %}<p><a href="{{ prospect.get_absolute_url }}">Review original prospect and outreach history ↗</a></p>{% endif %}
+</section>
+{% if executive_required and not form.fields.assigned_to.queryset.exists %}
+<div class="form-alert">No active account executives are available. Ask a system administrator to add an executive in Users before submitting a handoff.</div>
+{% endif %}
+<form method="post" class="record-form compact-form" novalidate>
+    {% csrf_token %}
+    <section class="form-section">{% include 'crm/fields.html' %}</section>
+    <div class="form-actions"><button type="submit" class="button">{{ submit_label }}</button><a class="button-secondary" href="{% url back_url %}">Cancel</a></div>
+</form>
+{% endblock %}

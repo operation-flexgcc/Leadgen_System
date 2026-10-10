@@ -9,6 +9,40 @@ permissions:
   contents: read
 
 jobs:
+  postgres-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: leadgen_test
+          POSTGRES_PASSWORD: ci-only-local-password
+          POSTGRES_DB: leadgen_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://leadgen_test:ci-only-local-password@localhost:5432/leadgen_test
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: ci-only-secret-key
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1
+      DJANGO_SECURE_SSL_REDIRECT: "False"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.lock.txt
+      - name: Test PostgreSQL migrations and transactional workflows
+        run: python manage.py test
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
