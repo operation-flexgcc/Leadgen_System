@@ -624,6 +624,24 @@ class CRMTests(CompanyApiTestMixin, TestCase):
         )
         self.assertEqual(response.context["summary"]["total"], 0)
 
+    def test_manager_api_conversion_keeps_existing_executive_by_default(self):
+        lead = self.handoff()
+        result = self.api(
+            "post",
+            "api_crm_convert",
+            self.manager,
+            [lead.pk],
+            {
+                "name": "Managed deal",
+                "requirements": "Team",
+                "stage": "qualified",
+                "probability": 25,
+                "decision_note": "Ready",
+            },
+        )
+        self.assertEqual(result.status_code, 200, result.content)
+        self.assertEqual(result.json()["lead"]["assigned_to"]["id"], self.ae.pk)
+
     def test_comments_are_escaped_and_full_history_is_paginated(self):
         lead = self.handoff()
         for index in range(27):

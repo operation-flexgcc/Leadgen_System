@@ -243,6 +243,8 @@ def convert(request, pk):
     crm.require_editor(request.api_user, lead)
     form = OpportunityForm(user=request.api_user, lead=lead)
     data = payload(request, form.fields)
+    if is_manager(request.api_user):
+        data.setdefault("assigned_to", lead.assigned_to_id)
     form, saved = crm.convert_lead(request.api_user, pk, data)
     return (
         JsonResponse(opportunity_data(saved, request.api_user))
