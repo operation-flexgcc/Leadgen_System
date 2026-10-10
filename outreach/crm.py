@@ -101,10 +101,16 @@ def version_matches(form, record):
 
 
 def create_handoff(prospect, user, data, historical=False):
+    escalated_by = user
+    if historical:
+        from .legacy_handoffs import historical_evidence
+
+        # The reviewing admin is the activity actor, not the original escalator.
+        escalated_by, _, _ = historical_evidence(prospect)
     lead = Escalation(
         prospect=prospect,
         assigned_to=data["assigned_to"],
-        escalated_by=user,
+        escalated_by=escalated_by,
         source_channel=prospect.workstream,
         context=data["context"],
         historical=historical,

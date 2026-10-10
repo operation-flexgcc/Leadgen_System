@@ -405,6 +405,8 @@ class CRMTests(CompanyApiTestMixin, TestCase):
         self.assertIsNotNone(lead, form.errors)
         self.assertTrue(lead.historical)
         self.assertIsNone(lead.escalated_at)
+        self.assertIsNone(lead.escalated_by)
+        self.assertEqual(lead.activities.get().actor, self.admin)
         self.assertNotIn(self.prospect, crm.review_candidates())
         self.prospect.refresh_from_db()
         self.assertEqual(model_to_dict(self.prospect), before)
