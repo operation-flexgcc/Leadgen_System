@@ -5,11 +5,11 @@ from outreach.models import Profile
 
 
 class Command(BaseCommand):
-    help = "Set an existing Google-authenticated user's FlexGCC Outreach role."
+    help = "Set one or more roles for an existing Google-authenticated user."
 
     def add_arguments(self, parser):
         parser.add_argument("email")
-        parser.add_argument("role", choices=[choice[0] for choice in Profile.Role.choices])
+        parser.add_argument("role", nargs="+", choices=[choice[0] for choice in Profile.Role.choices])
 
     def handle(self, *args, **options):
         email = options["email"].strip().lower()
@@ -17,6 +17,7 @@ class Command(BaseCommand):
         if not user:
             raise CommandError(f"No user exists with email {email}. Ask them to sign in once first.")
         profile, _ = Profile.objects.get_or_create(user=user)
-        profile.role = options["role"]
-        profile.save(update_fields=["role"])
-        self.stdout.write(self.style.SUCCESS(f"Set {email} to {profile.get_role_display()}."))
+        if Profile.Role.ACCOUNT_EXECUTIVE not in options["role"] and user.assigned_escalations.exists():
+            raise CommandError("Reassign this executive's CRM records before removing their executive role.")
+        profile.set_roles(options["role"])
+        self.stdout.write(self.style.SUCCESS(f"Set {email} to {profile.roles_display}."))

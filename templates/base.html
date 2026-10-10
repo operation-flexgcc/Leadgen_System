@@ -21,7 +21,7 @@
                     <small>Outreach</small>
                 </span>
             </a>
-            <nav class="primary-nav" aria-label="Primary navigation">
+            {% if current_user_has_active_role %}<nav class="primary-nav" aria-label="Primary navigation">
                 {% if not current_user_is_executive and not current_user_is_submitter %}<a href="{% url 'dashboard' %}">Dashboard</a>{% endif %}
                 <a href="{% url 'crm_lead_list' %}">{% if current_user_can_view_crm %}Escalated leads{% else %}My handoffs{% endif %}</a>
                 {% if current_user_can_view_crm %}<a href="{% url 'crm_opportunity_list' %}">Sales pipeline</a>{% endif %}
@@ -29,13 +29,14 @@
                 {% if current_user_is_system_admin %}<a href="{% url 'user_list' %}" {% if request.resolver_match.url_name == 'user_list' %}aria-current="page"{% endif %}>Users</a>{% endif %}
                 <a href="{% url 'api_access' %}" {% if request.resolver_match.url_name == 'api_access' %}aria-current="page"{% endif %}>API access</a>
                 {% if current_user_is_submitter or current_user_is_manager %}<a class="button button-small" href="{% url 'crm_submit' %}">+ Submit lead</a>{% elif not current_user_is_executive %}<a class="button button-small" href="{% url 'prospect_create' %}">+ Add prospect</a>{% endif %}
-            </nav>
+            </nav>{% endif %}
             <div class="account-menu">
                 <span class="user-avatar" aria-hidden="true">{{ user.first_name|default:user.email|first|upper }}</span>
                 <span class="account-copy">
                     <strong>{{ user.get_full_name|default:user.email }}</strong>
                     <small>{{ current_user_role_label }}</small>
                 </span>
+                {% if current_user_has_multiple_roles and current_user_has_active_role %}<a class="switch-role-link" href="{% url 'choose_role' %}">Switch role</a>{% endif %}
                 <form method="post" action="{% url 'account_logout' %}">
                     {% csrf_token %}
                     <button class="text-button" type="submit">Sign out</button>

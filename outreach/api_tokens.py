@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import ApiAccessToken, ApiRefreshToken
+from .permissions import active_role, assigned_roles
 
 
 API_ACCESS_TOKEN_PREFIX = "fgc_pat_"
@@ -24,11 +25,15 @@ def _token_hash(raw_token):
 def issue_access_token(user):
     """Create a persistent credential while storing only its one-way hash."""
 
+    role = active_role(user)
+    if role is None:
+        raise ApiTokenError("Choose an assigned role before generating an access token.")
     raw_token = f"{API_ACCESS_TOKEN_PREFIX}{secrets.token_urlsafe(48)}"
     ApiAccessToken.objects.create(
         user=user,
         token_hash=_token_hash(raw_token),
         token_prefix=raw_token[:16],
+        role=role,
     )
     return raw_token
 
@@ -54,6 +59,11 @@ def _authenticate_persistent_access_token(raw_token):
 
     if not stored_token.user.is_active:
         raise ApiTokenError("The token user is unavailable or inactive.")
+    roles = assigned_roles(stored_token.user)
+    if stored_token.role not in roles:
+        raise ApiTokenError("The token's role is no longer assigned. Generate a new token for an assigned role.")
+    stored_token.user._assigned_roles = roles
+    stored_token.user._active_role = stored_token.role
 
     now = timezone.now()
     updated = ApiAccessToken.objects.filter(
@@ -82,12 +92,18 @@ def _authenticate_legacy_access_token(raw_token):
     if payload.get("type") != "access":
         raise ApiTokenError("The supplied token is not an access token.")
     try:
-        return get_user_model().objects.select_related("profile").get(
+        user = get_user_model().objects.select_related("profile").get(
             pk=int(payload["sub"]),
             is_active=True,
         )
     except (TypeError, ValueError, get_user_model().DoesNotExist) as error:
         raise ApiTokenError("The token user is unavailable or inactive.") from error
+    roles = assigned_roles(user)
+    if len(roles) != 1:
+        raise ApiTokenError("Sign in, choose a role and generate a role-specific access token.")
+    user._assigned_roles = roles
+    user._active_role = roles[0]
+    return user
 
 
 def authenticate_access_token(raw_token):
@@ -116,6 +132,9 @@ def rotate_refresh_token(raw_token):
         or not stored_token.user.is_active
     ):
         raise ApiTokenError("The refresh token is invalid or has expired.")
+
+    if len(assigned_roles(stored_token.user)) != 1:
+        raise ApiTokenError("Sign in, choose a role and generate a role-specific access token.")
 
     stored_token.last_used_at = now
     stored_token.revoked_at = now

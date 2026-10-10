@@ -29,11 +29,10 @@ from .models import (
     CompanyUpdateAudit,
     Outreach,
     OutreachUpdateAudit,
-    Profile,
     Prospect,
     ProspectUpdateAudit,
 )
-from .permissions import is_manager
+from .permissions import active_role, is_manager
 from .workflows import sync_prospect_from_outreach
 
 
@@ -451,7 +450,7 @@ def company_detail(request, company_id):
         if not records:
             return _json_error("Company ID was not found.", 404)
         if not is_manager(request.api_user) and not any(
-            record.owner_id == request.api_user.id for record in records
+            _api_user_can_access_prospect(request.api_user, record) for record in records
         ):
             return _json_error("Claim this prospect before viewing its company details via API.", 403)
         return JsonResponse({"company": _company_details(records)})
@@ -477,7 +476,7 @@ def company_detail(request, company_id):
             .order_by("-updated_at", "pk")
         )
         if not is_manager(request.api_user) and not any(
-            record.owner_id == request.api_user.id for record in records
+            _api_user_can_access_prospect(request.api_user, record) for record in records
         ):
             return _json_error("Claim this prospect before modifying its company details.", 403)
 
@@ -593,7 +592,7 @@ def _prospect_workflow_api(
             prospect = Prospect.objects.select_related("owner").get(pk=prospect_id)
         except Prospect.DoesNotExist:
             return _json_error("Prospect ID was not found.", 404)
-        if not is_manager(request.api_user) and prospect.owner_id != request.api_user.id:
+        if not _api_user_can_access_prospect(request.api_user, prospect):
             return _json_error("Claim this prospect before viewing its workflow details via API.", 403)
         return JsonResponse(
             {"prospect": _prospect_details(prospect, fields=response_fields)}
@@ -618,7 +617,7 @@ def _prospect_workflow_api(
             prospect = Prospect.objects.select_for_update().get(pk=prospect_id)
         except Prospect.DoesNotExist:
             return _json_error("Prospect ID was not found.", 404)
-        if not is_manager(request.api_user) and prospect.owner_id != request.api_user.id:
+        if not _api_user_can_access_prospect(request.api_user, prospect):
             return _json_error("Claim this prospect before modifying its workflow details.", 403)
 
         invalid_linkedin_fields = sorted(
@@ -837,7 +836,9 @@ def _outreach_form_errors(form, *, prospect, submitted_fields):
 
 
 def _api_user_can_access_prospect(user, prospect):
-    return is_manager(user) or prospect.owner_id == user.id
+    return is_manager(user) or (
+        prospect.owner_id == user.id and prospect.workstream == active_role(user)
+    )
 
 
 @csrf_exempt
@@ -1054,10 +1055,7 @@ def outreach_detail(request, outreach_id):
 @require_POST
 def company_claim(request, company_id):
     user = request.api_user
-    try:
-        role = user.profile.role
-    except Profile.DoesNotExist:
-        return _json_error("The token user does not have an outreach class.", 403)
+    role = active_role(user)
     if role not in Prospect.Workstream.values:
         return _json_error("Managers and system administrators cannot claim prospects.", 403)
 

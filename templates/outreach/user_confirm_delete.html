@@ -11,7 +11,7 @@
     {% csrf_token %}
     <dl>
         <div><dt>Email</dt><dd>{{ target_user.email }}</dd></div>
-        <div><dt>Class</dt><dd>{{ target_user.profile.get_role_display }}</dd></div>
+        <div><dt>Roles</dt><dd>{{ target_user.profile.roles_display }}</dd></div>
     </dl>
     <div class="form-footer">
         <a class="button-secondary" href="{% url 'user_list' %}">Cancel</a>

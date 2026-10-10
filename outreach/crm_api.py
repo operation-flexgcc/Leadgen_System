@@ -17,7 +17,7 @@ from .api import _json_error, _read_json_object, api_token_required
 from .crm_forms import HandoffForm, LeadUpdateForm, OpportunityForm, SubmissionForm
 from .crm_views import filtered_records
 from .models import Opportunity, Prospect
-from .permissions import can_edit_lead, can_view_crm, is_manager
+from .permissions import active_role, can_edit_lead, can_view_crm, is_manager
 
 
 def endpoint(*methods):
@@ -176,7 +176,7 @@ def leads(request):
     data = payload(request, [*SubmissionForm.Meta.fields, "assigned_to", "context"])
     if not is_manager(request.api_user) and data.get("workstream") not in {
         None,
-        request.api_user.profile.role,
+        active_role(request.api_user),
     }:
         raise ValueError("workstream must match the submitting user's role.")
     form, lead = crm.submit_lead(request.api_user, data)

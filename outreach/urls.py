@@ -5,6 +5,7 @@ from . import api, crm_api, crm_views, views
 
 urlpatterns = [
     path("", views.home, name="home"),
+    path("choose-role/", views.choose_role, name="choose_role"),
     path("dashboard/", views.dashboard, name="dashboard"),
     path("outreach-history/", views.dashboard, {"history": True}, name="outreach_history"),
     path("crm/leads/", crm_views.lead_list, name="crm_lead_list"),

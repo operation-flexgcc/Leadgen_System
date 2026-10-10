@@ -51,9 +51,11 @@ class FlexGCCSocialAccountAdapter(DefaultSocialAccountAdapter):
                     )
                 )
         if existing_user and email in settings.SYSTEM_ADMIN_EMAILS:
-            Profile.objects.update_or_create(user=existing_user, defaults={"role": Profile.Role.SYSTEM_ADMIN})
+            profile, _ = Profile.objects.get_or_create(user=existing_user)
+            profile.set_roles([*profile.assigned_roles, Profile.Role.SYSTEM_ADMIN])
         elif existing_user and email in settings.MANAGER_EMAILS:
-            Profile.objects.update_or_create(user=existing_user, defaults={"role": Profile.Role.MANAGER})
+            profile, _ = Profile.objects.get_or_create(user=existing_user)
+            profile.set_roles([*profile.assigned_roles, Profile.Role.MANAGER])
 
     def save_user(self, request, sociallogin, form=None):
         user = super().save_user(request, sociallogin, form)

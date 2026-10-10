@@ -59,7 +59,7 @@ class Escalation(models.Model):
         errors = {}
         if (
             self.assigned_to_id
-            and self.assigned_to.profile.role != Profile.Role.ACCOUNT_EXECUTIVE
+            and not self.assigned_to.profile.has_role(Profile.Role.ACCOUNT_EXECUTIVE)
         ):
             errors["assigned_to"] = "Choose a client account executive."
         if bool(self.next_action.strip()) != bool(self.next_action_date):

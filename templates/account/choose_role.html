@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Choose your role · FlexGCC Outreach{% endblock %}
+{% block content %}
+<section class="role-picker">
+    <div class="page-heading">
+        <p class="eyebrow">Your workspace</p>
+        <h1>Choose your role</h1>
+        <p>Welcome, {{ user.first_name|default:user.email }}. Choose how you want to work in this session. You can switch roles at any time.</p>
+    </div>
+    <form method="post" class="role-picker-form">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ next_url }}">
+        {% if role_error %}<div class="form-alert" role="alert">{{ role_error }}</div>{% endif %}
+        <fieldset class="role-options">
+            <legend>Available roles</legend>
+            {% for value, label in role_choices %}
+            <label class="role-option">
+                <input type="radio" name="role" value="{{ value }}" required {% if selected_role == value %}checked{% endif %}>
+                <span><strong>{{ label }}</strong><small>
+                    {% if value == 'intern' or value == 'inside_sales' %}Submit qualified leads and view your handoffs.
+                    {% elif value == 'linkedin_outreach' %}Manage LinkedIn outreach and hand off interested prospects.
+                    {% elif value == 'account_executive' %}Manage discovery and sales for your assigned leads.
+                    {% elif value == 'manager' %}Oversee outreach and CRM records across the team.
+                    {% elif value == 'system_admin' %}Manage users, access, outreach and CRM records.
+                    {% endif %}
+                </small></span>
+            </label>
+            {% endfor %}
+        </fieldset>
+        <p class="help-text">Only the selected role's permissions apply. Your other roles remain available through Switch role.</p>
+        <button class="button" type="submit">Continue</button>
+    </form>
+</section>
+{% endblock %}

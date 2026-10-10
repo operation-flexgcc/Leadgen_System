@@ -2,6 +2,8 @@
 
 FlexGCC Outreach is a Google-authenticated outreach and sales CRM for sales interns, inside sales, LinkedIn operators, client account executives, managers, and system administrators.
 
+Each person may have multiple roles assigned in **Users**. Multi-role users choose a role after each login and can use **Switch role** later; only the selected role's permissions apply. Single-role users enter their workspace directly. Existing accounts retain their original role. See [multiple-role behavior and deployment notes](docs/executive-crm.md#multiple-roles-and-sign-in).
+
 ## Executive CRM update
 
 Sales interns and inside sales submit a short lead form only when ready for executive follow-up. LinkedIn operators keep their existing workflow and explicitly escalate a responding prospect to a selected executive. Executive ownership is separate from the original outreach owner. All executives can see the shared lead queue and sales pipeline; only the assigned executive or a manager can update a record. See [the CRM rollout and operating guide](docs/executive-crm.md) for migration, permissions, validation, API contracts and release checks. In-app API documentation is available at `/api-access/crm/`.
@@ -215,7 +217,7 @@ docker build -t flexgcc-outreach:local .
 
 Production must use `DJANGO_DEBUG=False` and HTTPS. Never commit `.env` or OAuth/database credentials.
 
-New API access tokens are persistent opaque credentials: they do not expire on a timer. The raw token is shown only once, only its SHA-256 hash is stored, and the user can revoke it immediately from `/api-access/`. Existing short-lived JWTs retain their original expiry; an unexpired old refresh token can be exchanged once for a persistent token at `/api/v1/token/refresh/`.
+New API access tokens are persistent opaque credentials bound to the selected role: they do not expire on a timer. The raw token is shown only once, only its SHA-256 hash is stored, and the user can revoke it immediately from `/api-access/`. Removing a role revokes its tokens; switching browser roles does not change token permissions. Existing tokens retain their pre-migration role. Legacy JWTs and refresh-token exchange remain supported for single-role users; multi-role users generate a role-specific token after signing in.
 
 The current native EC2 deployment for `leadgen.flexgcc.com` is documented in [`deploy/venv/README.md`](deploy/venv/README.md). The production workflow must load `.env` before it runs any `manage.py` command; otherwise migrations can silently target Django's local SQLite fallback instead of PostgreSQL.
 
@@ -225,7 +227,7 @@ The current native EC2 deployment for `leadgen.flexgcc.com` is documented in [`d
 - A system admin can change a user's name, email, or class.
 - System admins cannot remove their own admin role or delete themselves.
 - The last active system admin cannot be downgraded or deleted.
-- `python manage.py set_user_role EMAIL intern|inside_sales|linkedin_outreach|manager|system_admin` is available for emergency server-side role recovery after the user has signed in once.
+- `python manage.py set_user_role EMAIL ROLE [ROLE ...]` sets one or more roles for an existing account. Valid values: `intern`, `inside_sales`, `linkedin_outreach`, `account_executive`, `manager`, `system_admin`. Prefer **Users** for routine changes; this command is for emergency server-side recovery.
 
 ## Architecture
 

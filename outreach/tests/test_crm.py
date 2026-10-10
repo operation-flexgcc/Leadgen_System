@@ -440,7 +440,7 @@ class CRMTests(CompanyApiTestMixin, TestCase):
             instance=self.ae,
         )
         self.assertFalse(form.is_valid())
-        self.assertIn("role", form.errors)
+        self.assertIn("roles", form.errors)
 
     def test_queue_filters_exclude_terminal_overdue(self):
         lead = self.handoff()

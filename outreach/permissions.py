@@ -1,9 +1,33 @@
+from django.db.models import Q
+
 from .models import Profile
 
 
+def assigned_roles(user):
+    if not getattr(user, "is_authenticated", False):
+        return []
+    if hasattr(user, "_assigned_roles"):
+        return user._assigned_roles
+    try:
+        return user.profile.assigned_roles
+    except Profile.DoesNotExist:
+        return []
+
+
+def active_role(user):
+    roles = assigned_roles(user)
+    # Browser middleware and token authentication always set the active role.
+    # Non-request callers retain the existing primary-role behavior.
+    role = getattr(user, "_active_role", roles[0] if roles else None)
+    return role if role in roles else None
+
+
+def role_membership_query(roles, prefix="profile__"):
+    return Q(**{prefix + "role__in": roles}) | Q(**{prefix + "additional_roles__role__in": roles})
+
+
 def is_account_executive(user):
-    return bool(getattr(user, "is_authenticated", False) and
-                getattr(getattr(user, "profile", None), "role", None) == Profile.Role.ACCOUNT_EXECUTIVE)
+    return active_role(user) == Profile.Role.ACCOUNT_EXECUTIVE
 
 
 def can_view_crm(user):
@@ -15,22 +39,12 @@ def can_edit_lead(user, lead):
 
 
 def is_submission_user(user):
-    return getattr(getattr(user, "profile", None), "role", None) in {Profile.Role.INTERN, Profile.Role.INSIDE_SALES}
+    return active_role(user) in {Profile.Role.INTERN, Profile.Role.INSIDE_SALES}
 
 
 def is_manager(user) -> bool:
-    if not getattr(user, "is_authenticated", False):
-        return False
-    try:
-        return user.profile.role in {Profile.Role.MANAGER, Profile.Role.SYSTEM_ADMIN}
-    except Profile.DoesNotExist:
-        return False
+    return active_role(user) in {Profile.Role.MANAGER, Profile.Role.SYSTEM_ADMIN}
 
 
 def is_system_admin(user) -> bool:
-    if not getattr(user, "is_authenticated", False):
-        return False
-    try:
-        return user.profile.role == Profile.Role.SYSTEM_ADMIN
-    except Profile.DoesNotExist:
-        return False
+    return active_role(user) == Profile.Role.SYSTEM_ADMIN

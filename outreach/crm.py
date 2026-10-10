@@ -23,6 +23,7 @@ from .models import (
     normalized_company_key,
 )
 from .permissions import (
+    active_role,
     can_edit_lead,
     can_view_crm,
     is_manager,
@@ -35,7 +36,7 @@ def visible_leads(user):
     rows = Escalation.objects.select_related("prospect", "assigned_to", "escalated_by")
     if can_view_crm(user):
         return rows
-    return rows.filter(Q(prospect__owner=user) | Q(escalated_by=user))
+    return rows.filter(source_channel=active_role(user)).filter(Q(prospect__owner=user) | Q(escalated_by=user))
 
 
 def review_candidates():
@@ -162,7 +163,7 @@ def escalate_prospect(user, prospect_id, data, historical=False):
             raise PermissionDenied(
                 "Only a system administrator can migrate historical leads."
             )
-    elif not (is_manager(user) or prospect.owner_id == user.pk):
+    elif not (is_manager(user) or (prospect.owner_id == user.pk and prospect.workstream == active_role(user))):
         raise PermissionDenied("Claim this prospect before escalating it.")
     existing = Escalation.objects.filter(prospect=prospect).first()
     form = HandoffForm(data, prospect=prospect, historical=historical)

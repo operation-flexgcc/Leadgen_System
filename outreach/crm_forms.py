@@ -8,14 +8,14 @@ from django.utils import timezone
 
 from .forms import DateInput, DateTimeLocalInput
 from .models import Escalation, Opportunity, Profile, Prospect
-from .permissions import is_manager
+from .permissions import active_role, is_manager, role_membership_query
 
 
 def executives(current=None):
-    query = Q(is_active=True, profile__role=Profile.Role.ACCOUNT_EXECUTIVE)
+    query = role_membership_query([Profile.Role.ACCOUNT_EXECUTIVE]) & Q(is_active=True)
     if current:
-        query |= Q(pk=current, profile__role=Profile.Role.ACCOUNT_EXECUTIVE)
-    return get_user_model().objects.filter(query).order_by("first_name", "email")
+        query |= Q(pk=current) & role_membership_query([Profile.Role.ACCOUNT_EXECUTIVE])
+    return get_user_model().objects.filter(query).distinct().order_by("first_name", "email")
 
 
 class ExecutiveChoice(forms.ModelChoiceField):
@@ -80,7 +80,7 @@ class SubmissionForm(StyledForm, forms.ModelForm):
         ]
         if not is_manager(user):
             self.fields["workstream"].disabled = True
-            self.initial["workstream"] = user.profile.role
+            self.initial["workstream"] = active_role(user)
             self.fields["workstream"].widget = forms.HiddenInput()
         self.style()
 
@@ -354,7 +354,7 @@ class CRMFilterForm(forms.Form):
         super().__init__(*args, **kwargs)
         self.fields["assigned_to"].queryset = (
             get_user_model()
-            .objects.filter(profile__role=Profile.Role.ACCOUNT_EXECUTIVE)
+            .objects.filter(role_membership_query([Profile.Role.ACCOUNT_EXECUTIVE])).distinct()
             .order_by("first_name", "email")
         )
         self.fields["status"].choices = [

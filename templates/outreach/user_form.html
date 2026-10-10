@@ -5,7 +5,7 @@
     <a class="back-link" href="{% url 'user_list' %}">← User access</a>
     <p class="eyebrow">System administration</p>
     <h1>{{ title }}</h1>
-    <p>{% if target_user %}Update this person’s identity or access class.{% else %}The user will sign in with the exact Google email entered here.{% endif %}</p>
+    <p>{% if target_user %}Update this person’s identity or assigned roles.{% else %}The user will sign in with the exact Google email entered here.{% endif %}</p>
 </section>
 
 <form method="post" class="record-form compact-form" novalidate>
@@ -15,13 +15,18 @@
         <div class="form-grid user-form-grid">
             <div class="field field-full">{% include "outreach/field.html" with field=form.full_name %}</div>
             <div class="field field-full">{% include "outreach/field.html" with field=form.email %}</div>
-            <div class="field field-full">{% include "outreach/field.html" with field=form.role %}</div>
+            <fieldset class="field field-full user-role-options">
+                <legend>{{ form.roles.label }} <span class="required">*</span></legend>
+                {{ form.roles }}
+                <small class="help-text">{{ form.roles.help_text }}</small>
+                {% for error in form.roles.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+            </fieldset>
         </div>
         <div class="role-explainer">
-            <p><strong>Sales intern:</strong> qualifies firms, originates outreach, and maintains assigned prospects.</p>
-            <p><strong>Inside sales:</strong> runs the approved email, phone, and LinkedIn cadence and founder handoff.</p>
+            <p><strong>Sales intern / Inside sales:</strong> submits qualified leads to an executive and views their own handoffs.</p>
             <p><strong>LinkedIn outreach:</strong> operates one founder account per prospect and escalates substantive replies.</p>
-            <p><strong>Manager:</strong> sees and updates every prospect across all three outreach classes.</p>
+            <p><strong>Client account executive:</strong> views the CRM and manages discovery and sales for assigned leads.</p>
+            <p><strong>Manager:</strong> sees and updates all outreach and CRM records, and reassigns executives.</p>
             <p><strong>System admin:</strong> has manager visibility and controls user access.</p>
         </div>
     </section>

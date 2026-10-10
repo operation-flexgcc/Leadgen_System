@@ -5,7 +5,7 @@
     <div>
         <p class="eyebrow">System administration</p>
         <h1>User access</h1>
-        <p>Add people before their first Google sign-in and control each user class.</p>
+        <p>Add people before their first Google sign-in and assign one or more roles to each account.</p>
     </div>
     <div class="heading-actions">
         <a class="button-secondary" href="{% url 'company_export' 'csv' %}">Download companies CSV</a>
@@ -30,13 +30,13 @@
     </div>
     <div class="table-wrap">
         <table>
-            <thead><tr><th>Name</th><th>Email</th><th>Class</th><th>Access</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Roles</th><th>Access</th><th><span class="sr-only">Actions</span></th></tr></thead>
             <tbody>
                 {% for profile in profiles %}
                 <tr>
                     <td><strong>{{ profile.user.get_full_name|default:"Name not set" }}</strong>{% if profile.user == user %}<span class="cell-secondary">Your account</span>{% endif %}</td>
                     <td>{{ profile.user.email }}</td>
-                    <td><span class="role-badge role-{{ profile.role }}">{{ profile.get_role_display }}</span></td>
+                    <td><div class="user-role-badges">{% for value, label in profile.role_choices %}<span class="role-badge role-{{ value }}">{{ label }}</span>{% endfor %}</div></td>
                     <td>
                         {% if profile.user.is_active %}<span class="access-state access-active">Active</span>{% else %}<span class="access-state access-disabled">Disabled</span>{% endif %}
                     </td>

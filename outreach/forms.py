@@ -4,11 +4,12 @@ from django import forms
 from django.contrib.auth import get_user_model
 from allauth.account.models import EmailAddress
 from django.db.models import Q
+from django.db import transaction
 from django.utils import timezone
 
 from .bulk_import import MAX_CSV_SIZE_BYTES
 from .models import Outreach, Profile, Prospect
-from .permissions import is_manager
+from .permissions import active_role, is_manager, role_membership_query
 
 
 class DateInput(forms.DateInput):
@@ -24,7 +25,7 @@ class OperatorSelect(forms.Select):
         option = super().create_option(name, value, label, selected, index, subindex, attrs)
         if value and getattr(value, "instance", None):
             try:
-                option["attrs"]["data-role"] = value.instance.profile.role
+                option["attrs"]["data-roles"] = " ".join(value.instance.profile.assigned_roles)
             except Profile.DoesNotExist:
                 pass
         return option
@@ -104,7 +105,7 @@ class ProspectForm(forms.ModelForm):
             if self.is_bound
             else self.initial.get("workstream")
             or (self.instance.workstream if self.instance and self.instance.pk else None)
-            or getattr(getattr(user, "profile", None), "role", Prospect.Workstream.INTERN)
+            or active_role(user)
         )
         self.workstream_value = selected_workstream
         simplified_handoff = (
@@ -135,21 +136,21 @@ class ProspectForm(forms.ModelForm):
                 self.fields[field_name].required = True
 
         if is_manager(user):
-            owner_query = Q(profile__role__in=Prospect.Workstream.values, is_active=True)
+            owner_query = role_membership_query(Prospect.Workstream.values) & Q(is_active=True)
             if self.instance and self.instance.pk:
                 owner_query |= Q(pk=self.instance.owner_id)
             self.fields["owner"].queryset = (
-                get_user_model().objects.filter(owner_query).select_related("profile").order_by("first_name", "email")
+                get_user_model().objects.filter(owner_query).select_related("profile").prefetch_related("profile__additional_roles").distinct().order_by("first_name", "email")
             )
             self.fields["owner"].label = "Assigned outreach user"
             self.fields["owner"].empty_label = "Unassigned role queue"
             self.fields["owner"].label_from_instance = lambda operator: (
-                f"{operator.get_full_name() or operator.email} - {operator.profile.get_role_display()}"
+                f"{operator.get_full_name() or operator.email} - {operator.profile.roles_display}"
             )
         else:
             self.fields.pop("owner")
             self.fields["workstream"].widget = forms.HiddenInput()
-            self.fields["workstream"].initial = getattr(user.profile, "role", Prospect.Workstream.INTERN)
+            self.fields["workstream"].initial = active_role(user)
 
         for name, field in self.fields.items():
             field.widget.attrs.setdefault("class", "form-control")
@@ -168,12 +169,12 @@ class ProspectForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         if not is_manager(self.user):
-            cleaned_data["workstream"] = self.user.profile.role
-            self.instance.workstream = self.user.profile.role
+            cleaned_data["workstream"] = active_role(self.user)
+            self.instance.workstream = active_role(self.user)
 
         workstream = cleaned_data.get("workstream")
         owner = cleaned_data.get("owner") if is_manager(self.user) else self.user
-        if owner and workstream and owner.profile.role != workstream:
+        if owner and workstream and not owner.profile.has_role(workstream):
             self.add_error("owner", "Choose an outreach user whose class matches the selected workstream.")
 
         if not any(
@@ -222,7 +223,7 @@ class ProspectForm(forms.ModelForm):
         prospect = super().save(commit=False)
         if not is_manager(self.user):
             prospect.owner = self.user
-            prospect.workstream = self.user.profile.role
+            prospect.workstream = active_role(self.user)
         if prospect.workstream != Prospect.Workstream.LINKEDIN_OUTREACH:
             prospect.founder_account = ""
             prospect.linkedin_connection_status = ""
@@ -262,21 +263,22 @@ class BulkProspectImportForm(forms.Form):
             self.fields["owner"].queryset = (
                 get_user_model()
                 .objects.filter(
-                    profile__role__in=Prospect.Workstream.values,
+                    role_membership_query(Prospect.Workstream.values),
                     is_active=True,
                 )
                 .select_related("profile")
+                .prefetch_related("profile__additional_roles").distinct()
                 .order_by("first_name", "email")
             )
             self.fields["owner"].empty_label = "Unassigned role queue"
             self.fields["owner"].label_from_instance = lambda operator: (
                 f"{operator.get_full_name() or operator.email} - "
-                f"{operator.profile.get_role_display()}"
+                f"{operator.profile.roles_display}"
             )
         else:
             self.fields.pop("owner")
             self.fields["workstream"].widget = forms.HiddenInput()
-            self.fields["workstream"].initial = user.profile.role
+            self.fields["workstream"].initial = active_role(user)
 
         for field in self.fields.values():
             field.widget.attrs.setdefault("class", "form-control")
@@ -294,12 +296,12 @@ class BulkProspectImportForm(forms.Form):
     def clean(self):
         cleaned_data = super().clean()
         if not is_manager(self.user):
-            cleaned_data["workstream"] = self.user.profile.role
+            cleaned_data["workstream"] = active_role(self.user)
             cleaned_data["owner"] = self.user
 
         workstream = cleaned_data.get("workstream")
         owner = cleaned_data.get("owner")
-        if owner and workstream and owner.profile.role != workstream:
+        if owner and workstream and not owner.profile.has_role(workstream):
             self.add_error(
                 "owner",
                 "Choose an outreach user whose class matches the target workstream.",
@@ -470,12 +472,13 @@ class DashboardFilterForm(forms.Form):
         if is_manager(user):
             self.fields["owner"].queryset = (
                 get_user_model()
-                .objects.filter(profile__role__in=Prospect.Workstream.values, is_active=True)
+                .objects.filter(role_membership_query(Prospect.Workstream.values), is_active=True)
                 .select_related("profile")
+                .prefetch_related("profile__additional_roles").distinct()
                 .order_by("profile__role", "first_name", "email")
             )
             self.fields["owner"].label_from_instance = lambda operator: (
-                f"{operator.get_full_name() or operator.email} - {operator.profile.get_role_display()}"
+                f"{operator.get_full_name() or operator.email} - {operator.profile.roles_display}"
             )
         else:
             self.fields.pop("owner")
@@ -487,9 +490,24 @@ class DashboardFilterForm(forms.Form):
 class UserProvisionForm(forms.Form):
     full_name = forms.CharField(max_length=250, label="Name")
     email = forms.EmailField(max_length=254)
-    role = forms.ChoiceField(choices=Profile.Role.choices, label="Class of user")
+    roles = forms.MultipleChoiceField(
+        choices=Profile.Role.choices, label="User roles", widget=forms.CheckboxSelectMultiple,
+        help_text="Select one or more roles. People with multiple roles choose which role to use after signing in.",
+    )
 
     def __init__(self, *args, instance=None, **kwargs):
+        # Retain compatibility with older clients posting the single role field.
+        data = args[0] if args else kwargs.get("data")
+        if data is not None and "roles" not in data and data.get("role"):
+            data = data.copy()
+            if hasattr(data, "setlist"):
+                data.setlist("roles", [data["role"]])
+            else:
+                data["roles"] = [data["role"]]
+            if args:
+                args = (data, *args[1:])
+            else:
+                kwargs["data"] = data
         self.instance = instance
         initial = kwargs.setdefault("initial", {})
         if instance:
@@ -497,11 +515,13 @@ class UserProvisionForm(forms.Form):
                 {
                     "full_name": instance.get_full_name(),
                     "email": instance.email,
-                    "role": instance.profile.role,
+                    "roles": instance.profile.assigned_roles,
                 }
             )
         super().__init__(*args, **kwargs)
-        for field in self.fields.values():
+        for name, field in self.fields.items():
+            if name == "roles":
+                continue
             field.widget.attrs.setdefault("class", "form-control")
 
     def clean_email(self):
@@ -513,12 +533,13 @@ class UserProvisionForm(forms.Form):
             raise forms.ValidationError("A user with this email address already exists.")
         return email
 
-    def clean_role(self):
-        role = self.cleaned_data["role"]
-        if self.instance and role != Profile.Role.ACCOUNT_EXECUTIVE and self.instance.assigned_escalations.exists():
+    def clean_roles(self):
+        roles = self.cleaned_data["roles"]
+        if self.instance and Profile.Role.ACCOUNT_EXECUTIVE not in roles and self.instance.assigned_escalations.exists():
             raise forms.ValidationError("Reassign this executive's CRM records before changing their role.")
-        return role
+        return roles
 
+    @transaction.atomic
     def save(self):
         full_name = " ".join(self.cleaned_data["full_name"].split())
         name_parts = full_name.split(" ", 1)
@@ -548,8 +569,7 @@ class UserProvisionForm(forms.Form):
         if old_email and old_email != email:
             user.socialaccount_set.all().delete()
         profile, _ = Profile.objects.get_or_create(user=user)
-        profile.role = self.cleaned_data["role"]
-        profile.save(update_fields=["role"])
+        profile.set_roles(self.cleaned_data["roles"])
         user.profile = profile
         email_address = EmailAddress.objects.filter(user=user, primary=True).first()
         if email_address:

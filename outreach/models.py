@@ -4,8 +4,9 @@ from urllib.parse import urlsplit
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.urls import reverse
+from django.utils import timezone
 
 from .crm_models import CRMActivity, Escalation, Opportunity  # noqa: F401
 
@@ -24,6 +25,49 @@ class Profile(models.Model):
 
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.email or self.user.username} ({self.get_role_display()})"
+
+    @property
+    def assigned_roles(self):
+        # Keep the existing role as a primary grant for backwards compatibility.
+        extra = {grant.role for grant in self.additional_roles.all()}
+        return [self.role] + [role for role in self.Role.values if role in extra and role != self.role]
+
+    @property
+    def role_choices(self):
+        labels = dict(self.Role.choices)
+        return [(role, labels[role]) for role in self.assigned_roles]
+
+    @property
+    def roles_display(self):
+        return ", ".join(label for _, label in self.role_choices)
+
+    def has_role(self, role):
+        return role in self.assigned_roles
+
+    @transaction.atomic
+    def set_roles(self, roles):
+        roles = list(dict.fromkeys(roles))
+        if not roles or any(role not in self.Role.values for role in roles):
+            raise ValidationError("Choose at least one valid user role.")
+        if self.role not in roles:
+            self.role = roles[0]
+        self.save(update_fields=["role"])
+        self.additional_roles.exclude(role__in=roles).delete()
+        self.additional_roles.filter(role=self.role).delete()
+        for role in roles:
+            if role != self.role:
+                self.additional_roles.get_or_create(role=role)
+        self.user.api_access_tokens.filter(revoked_at__isnull=True).exclude(role__in=roles).update(revoked_at=timezone.now())
+        if hasattr(self, "_prefetched_objects_cache"):
+            self._prefetched_objects_cache.pop("additional_roles", None)
+
+
+class ProfileRole(models.Model):
+    profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name="additional_roles")
+    role = models.CharField(max_length=20, choices=Profile.Role.choices, db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["profile", "role"], name="unique_additional_profile_role")]
 
 
 def normalized_company_key(website):
@@ -187,12 +231,12 @@ class Prospect(models.Model):
         errors = {}
         if self.owner_id:
             try:
-                owner_role = self.owner.profile.role
+                owner_roles = self.owner.profile.assigned_roles
             except Profile.DoesNotExist:
-                owner_role = None
-            if owner_role not in self.Workstream.values:
+                owner_roles = []
+            if not set(owner_roles).intersection(self.Workstream.values):
                 errors["owner"] = "Assign this prospect to a sales intern, inside-sales user, or LinkedIn-outreach user."
-            elif owner_role != self.workstream:
+            elif self.workstream not in owner_roles:
                 errors["owner"] = "The assigned user's class must match the selected workstream."
         if self.status == self.Status.MEETING_SCHEDULED:
             if not self.meeting_scheduled_at:
@@ -319,6 +363,7 @@ class ApiAccessToken(models.Model):
     )
     token_hash = models.CharField(max_length=64, unique=True)
     token_prefix = models.CharField(max_length=16)
+    role = models.CharField(max_length=20, choices=Profile.Role.choices)
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True, db_index=True)

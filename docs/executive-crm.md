@@ -13,6 +13,20 @@ This update adds executive discovery and sales tracking while preserving existin
 
 Both lists provide company/contact search, executive and channel filters, escalation date ranges, status/stage and action-date filters. Pipeline also filters expected close dates. Active deal values are totaled separately by currency; no exchange-rate conversion or combined currency total is implied. Summary counts reflect the current filters. Activity is paginated without truncating history; comments and before/after changes are append-only in the application.
 
+## Multiple roles and sign-in
+
+System administrators open **Users → Add user / Edit → User roles** and check every role the person needs. Use one account and one Google email per person, not duplicate accounts. Existing users retain their original role; migration `0011` adds optional extra role grants without changing prospect ownership or historical records.
+
+After each login, a person with multiple assigned roles must choose one at `/choose-role/` before opening any application page or submitting a form. Single-role users go directly to their usual workspace. The selected role is shown beside their name; **Switch role** opens the chooser again. Selection is per browser session, not a global account setting. A safe internal destination from the sign-in flow is retained; that page still enforces the selected role's permissions.
+
+Only the selected role's permissions apply; permissions are not combined. For example, an Inside sales + Client account executive user submits as Inside sales, then switches to Client account executive to work assigned discovery records. A Manager + Inside sales user cannot use manager access while Inside sales is selected. Source channels and personal attribution are recorded separately. Outreach records and handoffs are scoped to the selected source role. Executive assignment lists include any active person granted the executive role, regardless of what role that person is currently using.
+
+Role changes are checked on every request. A removed active role cannot continue being used; if multiple roles remain, the chooser appears again. An administrator cannot remove their own system-admin grant or remove the last active administrator. Executive records must be reassigned before removing an executive grant. Counts on Users include each applicable role, so role totals may exceed the number of people.
+
+New persistent API tokens are bound to the role selected when generated. Browser role switching does not change a token's permissions. Migration `0011` binds existing persistent tokens to their user's pre-migration role; removing a role revokes its tokens. Legacy short-lived JWTs and refresh-token exchange remain supported for single-role users; multi-role users must sign in, choose a role and generate a role-specific token. No API caller can select an unassigned role through a request header or payload.
+
+Deploy migration `0011` before serving the new code, and collect static files. Do not reverse it after assigning multiple roles: that would discard extra grants and token-role bindings. Existing deployment workflows are unchanged.
+
 ## Historical records and identity
 
 Migration `0010` is additive: it creates Escalation, Opportunity and CRMActivity, adds the executive role and permits blank website on simplified submissions. It neither deletes nor converts existing prospects/outreach. Existing company UUIDs are unchanged. A new lead with no website receives a unique system company identity; the app does not infer a website or merge unrelated companies. New submissions reject an existing same-channel domain (or same company name when no domain); use the existing prospect's handoff instead. Original source/contact fields remain on the linked prospect, so authorized corrections remain available in its original workflow or to managers.

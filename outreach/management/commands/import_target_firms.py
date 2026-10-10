@@ -127,10 +127,12 @@ class Command(BaseCommand):
         self.stdout.write(f"Audit user: {creator.email}")
 
     def get_creator(self, email):
+        from outreach.permissions import role_membership_query
+
         users = get_user_model().objects.filter(
+            role_membership_query([Profile.Role.SYSTEM_ADMIN]),
             is_active=True,
-            profile__role=Profile.Role.SYSTEM_ADMIN,
-        )
+        ).distinct()
         if email:
             try:
                 return users.get(email__iexact=email.strip())

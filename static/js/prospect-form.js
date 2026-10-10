@@ -54,12 +54,12 @@
     if (!owner) return;
     const role = selectedWorkstream();
     [...owner.options].forEach((option) => {
-      const matches = !option.value || option.dataset.role === role;
+      const matches = !option.value || (option.dataset.roles || "").split(" ").includes(role);
       option.hidden = !matches;
       option.disabled = !matches;
     });
     const selected = owner.options[owner.selectedIndex];
-    if (selected?.value && selected.dataset.role !== role) owner.value = "";
+    if (selected?.value && !(selected.dataset.roles || "").split(" ").includes(role)) owner.value = "";
   };
 
   const updateWorkstreamVisibility = () => {

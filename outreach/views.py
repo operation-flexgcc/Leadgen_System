@@ -14,6 +14,8 @@ from django.db.models import Count, F, Q
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 
 from .bulk_import import (
@@ -29,7 +31,7 @@ from .forms import (
     UserProvisionForm,
 )
 from .models import Outreach, Profile, Prospect, ProspectImportBatch
-from .permissions import is_account_executive, is_manager, is_submission_user, is_system_admin
+from .permissions import active_role, assigned_roles, is_account_executive, is_manager, is_submission_user, is_system_admin, role_membership_query
 from .workflows import sync_prospect_from_outreach
 
 
@@ -42,6 +44,7 @@ REQUIRED_HEALTH_TABLES = {
     "outreach_escalation",
     "outreach_opportunity",
     "outreach_crmactivity",
+    "outreach_profilerole",
     "socialaccount_socialaccount",
 }
 
@@ -50,6 +53,36 @@ def login_landing(request):
     if request.user.is_authenticated:
         return redirect("dashboard")
     return render(request, "account/login.html")
+
+
+@login_required
+@never_cache
+@require_http_methods(["GET", "POST"])
+def choose_role(request):
+    from .middleware import ACTIVE_ROLE_SESSION_KEY
+
+    roles = assigned_roles(request.user)
+    if len(roles) == 1:
+        return redirect("dashboard")
+    next_url = request.POST.get("next", "") if request.method == "POST" else request.GET.get("next", "")
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
+        next_url = ""
+    if next_url.split("?", 1)[0] in {request.path, "/login/"}:
+        next_url = ""
+    error = ""
+    if request.method == "POST":
+        selected = request.POST.get("role")
+        if selected in roles:
+            request.session.cycle_key()
+            request.session[ACTIVE_ROLE_SESSION_KEY] = selected
+            return redirect(next_url or "dashboard")
+        error = "Choose one of the roles assigned to your account."
+    return render(request, "account/choose_role.html", {
+        "role_choices": request.user.profile.role_choices,
+        "selected_role": active_role(request.user),
+        "next_url": next_url,
+        "role_error": error,
+    }, status=400 if error else 200)
 
 
 def health(request):
@@ -69,11 +102,10 @@ def scoped_prospects(user):
     queryset = Prospect.objects.select_related("owner", "owner__profile")
     if is_manager(user):
         return queryset
-    try:
-        role = user.profile.role
-    except Profile.DoesNotExist:
+    role = active_role(user)
+    if role not in Prospect.Workstream.values:
         return queryset.none()
-    return queryset.filter(Q(owner=user) | Q(owner__isnull=True, workstream=role))
+    return queryset.filter(workstream=role).filter(Q(owner=user) | Q(owner__isnull=True))
 
 
 def get_scoped_prospect(user, pk):
@@ -233,7 +265,7 @@ def dashboard(request, history=False):
         "query_string": query_params.urlencode(),
         "today": today,
         "operator_count": (
-            Profile.objects.filter(role__in=Prospect.Workstream.values, user__is_active=True).count()
+            Profile.objects.filter(role_membership_query(Prospect.Workstream.values, prefix=""), user__is_active=True).distinct().count()
             if is_manager(request.user)
             else None
         ),
@@ -265,7 +297,7 @@ def _get_scoped_import_batch(user, batch_id):
         "rolled_back_by",
     )
     if not is_manager(user):
-        batches = batches.filter(uploaded_by=user)
+        batches = batches.filter(uploaded_by=user, target_workstream=active_role(user))
     return get_object_or_404(batches, pk=batch_id)
 
 
@@ -296,7 +328,7 @@ def prospect_bulk_import(request):
             return redirect("prospect_bulk_import_result", batch_id=batch.pk)
     recent_batches = ProspectImportBatch.objects.select_related("owner", "uploaded_by")
     if not is_manager(request.user):
-        recent_batches = recent_batches.filter(uploaded_by=request.user)
+        recent_batches = recent_batches.filter(uploaded_by=request.user, target_workstream=active_role(request.user))
     response = render(
         request,
         "outreach/prospect_bulk_import.html",
@@ -399,7 +431,7 @@ def prospect_detail(request, pk):
             "can_claim_prospect": (
                 not is_manager(request.user)
                 and prospect.owner_id is None
-                and prospect.workstream == request.user.profile.role
+                and prospect.workstream == active_role(request.user)
             ),
             "today": timezone.localdate(),
         },
@@ -464,7 +496,7 @@ def prospect_claim(request, pk):
 
     with transaction.atomic():
         prospect = get_object_or_404(Prospect.objects.select_for_update(), pk=pk)
-        if prospect.workstream != request.user.profile.role:
+        if prospect.workstream != active_role(request.user):
             raise PermissionDenied("This prospect belongs to another outreach workstream.")
         if prospect.owner_id is None:
             prospect.owner = request.user
@@ -520,17 +552,16 @@ def user_list(request):
     require_system_admin(request.user)
     users = (
         Profile.objects.select_related("user")
+        .prefetch_related("additional_roles")
         .order_by("-user__is_active", "role", "user__first_name", "user__email")
     )
     counts = {
         "active": users.filter(user__is_active=True).count(),
-        "interns": users.filter(user__is_active=True, role=Profile.Role.INTERN).count(),
-        "inside_sales": users.filter(user__is_active=True, role=Profile.Role.INSIDE_SALES).count(),
-        "linkedin_outreach": users.filter(user__is_active=True, role=Profile.Role.LINKEDIN_OUTREACH).count(),
-        "executives": users.filter(user__is_active=True, role=Profile.Role.ACCOUNT_EXECUTIVE).count(),
-        "managers": users.filter(user__is_active=True, role=Profile.Role.MANAGER).count(),
-        "admins": users.filter(user__is_active=True, role=Profile.Role.SYSTEM_ADMIN).count(),
     }
+    for key, role in {"interns": Profile.Role.INTERN, "inside_sales": Profile.Role.INSIDE_SALES,
+                      "linkedin_outreach": Profile.Role.LINKEDIN_OUTREACH, "executives": Profile.Role.ACCOUNT_EXECUTIVE,
+                      "managers": Profile.Role.MANAGER, "admins": Profile.Role.SYSTEM_ADMIN}.items():
+        counts[key] = users.filter(role_membership_query([role], prefix=""), user__is_active=True).distinct().count()
     return render(request, "outreach/user_list.html", {"profiles": users, "counts": counts})
 
 
@@ -553,15 +584,15 @@ def user_update(request, pk):
     target = get_object_or_404(Profile.objects.select_related("user"), user_id=pk).user
     form = UserProvisionForm(request.POST or None, instance=target)
     if request.method == "POST" and form.is_valid():
-        new_role = form.cleaned_data["role"]
-        if target == request.user and new_role != Profile.Role.SYSTEM_ADMIN:
-            form.add_error("role", "You cannot remove your own system administrator access.")
+        new_roles = form.cleaned_data["roles"]
+        if target == request.user and Profile.Role.SYSTEM_ADMIN not in new_roles:
+            form.add_error("roles", "You cannot remove your own system administrator access.")
         elif (
-            target.profile.role == Profile.Role.SYSTEM_ADMIN
-            and new_role != Profile.Role.SYSTEM_ADMIN
-            and not Profile.objects.filter(role=Profile.Role.SYSTEM_ADMIN, user__is_active=True).exclude(user=target).exists()
+            target.profile.has_role(Profile.Role.SYSTEM_ADMIN)
+            and Profile.Role.SYSTEM_ADMIN not in new_roles
+            and not Profile.objects.filter(role_membership_query([Profile.Role.SYSTEM_ADMIN], prefix=""), user__is_active=True).exclude(user=target).exists()
         ):
-            form.add_error("role", "Add another active system administrator before changing the last one.")
+            form.add_error("roles", "Add another active system administrator before changing the last one.")
         else:
             user = form.save()
             messages.success(request, f"{user.get_full_name()} was updated.")
@@ -578,9 +609,9 @@ def user_delete(request, pk):
         messages.error(request, "You cannot delete your own account.")
         return redirect("user_list")
     if (
-        target.profile.role == Profile.Role.SYSTEM_ADMIN
+        target.profile.has_role(Profile.Role.SYSTEM_ADMIN)
         and target.is_active
-        and not Profile.objects.filter(role=Profile.Role.SYSTEM_ADMIN, user__is_active=True).exclude(user=target).exists()
+        and not Profile.objects.filter(role_membership_query([Profile.Role.SYSTEM_ADMIN], prefix=""), user__is_active=True).exclude(user=target).exists()
     ):
         messages.error(request, "Add another active system administrator before deleting the last one.")
         return redirect("user_list")

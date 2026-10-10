@@ -26,18 +26,19 @@
     <div class="panel-header">
         <div>
             <h2>Active tokens</h2>
-            <p>Tokens inherit your current role and stop working immediately when revoked.</p>
+            <p>New tokens use your selected role: {{ current_user_role_label }}. Switching roles in the website does not change existing tokens. Removing a role revokes its tokens.</p>
         </div>
         <form method="post">{% csrf_token %}<button class="button" type="submit">Generate access token</button></form>
     </div>
     {% if active_tokens %}
     <div class="table-wrap">
         <table>
-            <thead><tr><th>Token</th><th>Created</th><th>Last used</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <thead><tr><th>Token</th><th>Role</th><th>Created</th><th>Last used</th><th><span class="sr-only">Actions</span></th></tr></thead>
             <tbody>
                 {% for token in active_tokens %}
                 <tr>
                     <td><code>{{ token.token_prefix }}…</code><span class="cell-secondary">Does not expire automatically</span></td>
+                    <td>{{ token.get_role_display }}</td>
                     <td>{{ token.created_at|date:"j M Y, g:i A" }}</td>
                     <td>{% if token.last_used_at %}{{ token.last_used_at|date:"j M Y, g:i A" }}{% else %}<span class="muted">Not used yet</span>{% endif %}</td>
                     <td>
