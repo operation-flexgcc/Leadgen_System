@@ -1,11 +1,10 @@
 from urllib.parse import urlencode
 
-from django.http import HttpResponseForbidden
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.cache import patch_cache_control
 
-from .permissions import assigned_roles, is_ai_user
+from .permissions import assigned_roles
 
 
 ACTIVE_ROLE_SESSION_KEY = "outreach_active_role"
@@ -26,16 +25,6 @@ class ActiveRoleMiddleware:
                 request.session.pop(ACTIVE_ROLE_SESSION_KEY, None)
                 selected = None
             request.user._active_role = roles[0] if len(roles) == 1 else selected
-            read_only_exempt = (
-                request.path in {reverse("choose_role"), reverse("api_access")}
-                or request.path.startswith(("/accounts/", "/api-access/tokens/"))
-            )
-            if (
-                is_ai_user(request.user)
-                and request.method not in {"GET", "HEAD", "OPTIONS"}
-                and not read_only_exempt
-            ):
-                return HttpResponseForbidden("AI user access is read-only.")
             exempt = (
                 request.path in {reverse("choose_role"), reverse("login"), reverse("health")}
                 or request.path.startswith(("/accounts/", "/api/", "/static/"))

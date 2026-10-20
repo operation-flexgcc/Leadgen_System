@@ -7,13 +7,6 @@
     <p>Generate an access token that remains active until you revoke it.</p>
 </section>
 
-{% if current_user_is_read_only %}
-<section class="token-warning" aria-live="polite">
-    <strong>Read-only API role.</strong>
-    <span>Tokens created under the AI user role can use GET endpoints only. POST, PATCH, PUT and DELETE requests are rejected.</span>
-</section>
-{% endif %}
-
 {% if token_pair %}
 <section class="token-warning" aria-live="polite">
     <strong>Copy this token now.</strong>

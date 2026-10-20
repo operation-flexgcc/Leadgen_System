@@ -31,7 +31,7 @@
         <div><dt>Recorded in CRM</dt><dd>{{ lead.created_at|date:'j M Y, H:i T' }}{% if lead.historical %} · Reviewed historical handoff{% endif %}</dd></div>
         <div class="info-full"><dt>Handoff context</dt><dd>{{ lead.context|linebreaksbr }}</dd></div>
     </dl>
-    {% if current_user_can_view_all_outreach or lead.prospect.owner_id == user.pk %}<p><a href="{{ lead.prospect.get_absolute_url }}">View original prospect and outreach history ↗</a></p>{% endif %}
+    {% if current_user_is_manager or lead.prospect.owner_id == user.pk %}<p><a href="{{ lead.prospect.get_absolute_url }}">View original prospect and outreach history ↗</a></p>{% endif %}
 </section>
 <section class="panel detail-panel"><h2>{% if pipeline_detail %}Opportunity{% else %}Executive follow-up{% endif %}</h2>
     <dl class="info-grid">

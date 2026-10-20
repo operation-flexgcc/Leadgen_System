@@ -1,6 +1,6 @@
 # FlexGCC Outreach 3
 
-FlexGCC Outreach is a Google-authenticated outreach and sales CRM for sales interns, inside sales, LinkedIn operators, client account executives, managers, system administrators, and read-only AI users.
+FlexGCC Outreach is a Google-authenticated outreach and sales CRM for sales interns, inside sales, LinkedIn operators, client account executives, managers, and system administrators.
 
 Each person may have multiple roles assigned in **Users**. Multi-role users choose a role after each login and can use **Switch role** later; only the selected role's permissions apply. Single-role users enter their workspace directly. Existing accounts retain their original role. See [multiple-role behavior and deployment notes](docs/executive-crm.md#multiple-roles-and-sign-in).
 
@@ -33,7 +33,7 @@ The canonical source and production release repository is [operation-flexgcc/Lea
 - Rotating API credentials, audited company-detail updates, and atomic prospect claiming by company ID.
 - Auditable bulk prospect ingestion from three-column CSV files, with row-level validation, duplicate reporting, recent-batch history, and safe batch rollback.
 - Google OAuth login with exact-email pre-provisioning and optional Google-domain restriction.
-- Seven extensible user classes:
+- Six extensible user classes:
 
 | Class | Access |
 |---|---|
@@ -43,7 +43,6 @@ The canonical source and production release repository is [operation-flexgcc/Lea
 | Client account executive | Reads all escalated leads and opportunities; updates only assigned records |
 | Manager | Sees and updates all prospects across all three outreach classes |
 | System admin | Has manager visibility and adds, edits, disables, restores, or deletes users |
-| AI user | Sees all outreach, CRM, pipeline, historical-review, and user-access data but cannot add, edit, delete, claim, submit, escalate, comment, or reassign records; bearer tokens are GET-only |
 
 Deleting an unused user removes the account. If the user owns prospect or outreach history, the app disables access and retains the account as an audit reference.
 
@@ -114,7 +113,7 @@ Content-Type: application/json
 }
 ```
 
-`GET` on the same URL returns the company details. Managers and system administrators can read or update every company. AI users can read every company but all non-GET API requests are rejected. Frontline users must own the prospect for their workstream. Each successful update is stored with the authenticated user, prior values, new values, and timestamp.
+`GET` on the same URL returns the company details. Managers and system administrators can read or update every company. Frontline users must own the prospect for their workstream. Each successful update is stored with the authenticated user, prior values, new values, and timestamp.
 
 The company response includes a `prospects` list containing the prospect ID and workstream for each company record. Use that numeric prospect ID with one of the purpose-specific workflow APIs:
 
@@ -144,7 +143,7 @@ Content-Type: application/json
 
 The in-app `/api-access/` page links to a separate guide for each API with every input type, conditional requirement, exact dropdown value, validation rule, and executable `curl` example. The general `/api/v1/prospects/<prospect_id>/` endpoint remains available for backward compatibility.
 
-Managers and system administrators can read or update any prospect. AI users can read any prospect, outreach history, escalated lead, opportunity, activity, and user-access record, but cannot modify them. A frontline user must own the exact prospect. Each successful workflow update is audited separately with the authenticated user, prior values, new values, and timestamp. Founder LinkedIn fields apply only to LinkedIn outreach prospects. Founder escalation can be enabled only after the invitation is accepted and a prospect response or interest signal is recorded. The `prospect_sent` and `is_not_eligible` flags do not silently change stage or status.
+Managers and system administrators can read or update any prospect. A frontline user must own the exact prospect. Each successful workflow update is audited separately with the authenticated user, prior values, new values, and timestamp. Founder LinkedIn fields apply only to LinkedIn outreach prospects. Founder escalation can be enabled only after the invitation is accepted and a prospect response or interest signal is recorded. The `prospect_sent` and `is_not_eligible` flags do not silently change stage or status.
 
 The Outreach History APIs apply the same validation as the browser workflow: the selected channel needs its matching contact detail, future dates are rejected, LinkedIn activities follow the connection state, and each prospect is limited to five numbered records. The server assigns `sequence_number` and `recorded_by`. Outreach identity and sequence cannot be changed or deleted through the API; successful PATCH corrections are audited with the modifier and before/after values.
 
@@ -228,7 +227,7 @@ The current native EC2 deployment for `leadgen.flexgcc.com` is documented in [`d
 - A system admin can change a user's name, email, or class.
 - System admins cannot remove their own admin role or delete themselves.
 - The last active system admin cannot be downgraded or deleted.
-- `python manage.py set_user_role EMAIL ROLE [ROLE ...]` sets one or more roles for an existing account. Valid values: `intern`, `inside_sales`, `linkedin_outreach`, `account_executive`, `manager`, `system_admin`, `ai_user`. Prefer **Users** for routine changes; this command is for emergency server-side recovery.
+- `python manage.py set_user_role EMAIL ROLE [ROLE ...]` sets one or more roles for an existing account. Valid values: `intern`, `inside_sales`, `linkedin_outreach`, `account_executive`, `manager`, `system_admin`. Prefer **Users** for routine changes; this command is for emergency server-side recovery.
 
 ## Architecture
 

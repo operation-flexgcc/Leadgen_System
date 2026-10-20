@@ -19,7 +19,6 @@ class Profile(models.Model):
         ACCOUNT_EXECUTIVE = "account_executive", "Client account executive"
         MANAGER = "manager", "Manager"
         SYSTEM_ADMIN = "system_admin", "System admin"
-        AI_USER = "ai_user", "AI user"
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.INTERN, db_index=True)

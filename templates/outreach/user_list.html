@@ -5,12 +5,12 @@
     <div>
         <p class="eyebrow">System administration</p>
         <h1>User access</h1>
-        <p>{% if current_user_is_read_only %}Review approved accounts and their assigned roles. This account cannot change user access.{% else %}Add people before their first Google sign-in and assign one or more roles to each account.{% endif %}</p>
+        <p>Add people before their first Google sign-in and assign one or more roles to each account.</p>
     </div>
     <div class="heading-actions">
         <a class="button-secondary" href="{% url 'company_export' 'csv' %}">Download companies CSV</a>
         <a class="button-secondary" href="{% url 'company_export' 'xlsx' %}">Download companies XLSX</a>
-        {% if current_user_is_system_admin %}<a class="button" href="{% url 'user_create' %}">+ Add user</a>{% endif %}
+        <a class="button" href="{% url 'user_create' %}">+ Add user</a>
     </div>
 </section>
 
@@ -22,7 +22,6 @@
     <div class="metric-card"><span>LinkedIn outreach</span><strong>{{ counts.linkedin_outreach }}</strong><small>Operate founder accounts</small></div>
     <div class="metric-card"><span>Managers</span><strong>{{ counts.managers }}</strong><small>See all outreach data</small></div>
     <div class="metric-card"><span>System admins</span><strong>{{ counts.admins }}</strong><small>Manage users and access</small></div>
-    <div class="metric-card"><span>AI users</span><strong>{{ counts.ai_users }}</strong><small>Read-only organization access</small></div>
 </section>
 
 <section class="panel">
@@ -42,14 +41,14 @@
                         {% if profile.user.is_active %}<span class="access-state access-active">Active</span>{% else %}<span class="access-state access-disabled">Disabled</span>{% endif %}
                     </td>
                     <td>
-                        {% if current_user_is_system_admin %}<div class="row-actions">
+                        <div class="row-actions">
                             <a href="{% url 'user_update' profile.user_id %}">Edit</a>
                             {% if not profile.user.is_active %}
                             <form method="post" action="{% url 'user_restore' profile.user_id %}">{% csrf_token %}<button type="submit">Restore</button></form>
                             {% elif profile.user != user %}
                             <a class="danger-link" href="{% url 'user_delete' profile.user_id %}">Delete</a>
                             {% endif %}
-                        </div>{% else %}<span class="muted">View only</span>{% endif %}
+                        </div>
                     </td>
                 </tr>
                 {% empty %}

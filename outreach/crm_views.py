@@ -21,7 +21,6 @@ from .crm_forms import (
 from .models import Escalation, Opportunity, Prospect
 from .permissions import (
     can_edit_lead,
-    can_view_user_access,
     can_view_crm,
     is_manager,
     is_submission_user,
@@ -34,10 +33,8 @@ from .permissions import (
 def legacy_routing(request):
     from . import legacy_handoffs
 
-    if not can_view_user_access(request.user):
-        raise PermissionDenied("System administration visibility is required.")
-    if request.method == "POST" and not is_system_admin(request.user):
-        raise PermissionDenied("AI user access is read-only.")
+    if not is_system_admin(request.user):
+        raise PermissionDenied("System administrator access is required.")
     action = request.POST.get("action")
     form = LegacyRoutingForm(request.POST if action == "save_routes" else None)
     if request.method == "POST":
@@ -66,7 +63,6 @@ def legacy_routing(request):
         "form": form, "rows": rows, "ready_count": len(targets),
         "blocked_count": len(rows) - len(targets),
         "preview_token": signing.dumps({"user": request.user.pk, "targets": targets}, salt="legacy-cae-backfill", compress=True),
-        "can_edit": is_system_admin(request.user),
     })
     response["Cache-Control"] = "private, no-store"
     return response
@@ -387,7 +383,7 @@ def comment(request, pk):
 
 @login_required
 def migration_review(request):
-    if not can_view_user_access(request.user):
+    if not is_system_admin(request.user):
         raise PermissionDenied
     candidates = crm.review_candidates()
     search = request.GET.get("search", "").strip()
@@ -404,7 +400,6 @@ def migration_review(request):
             "page_obj": Paginator(candidates, 25).get_page(request.GET.get("page")),
             "search": search,
             "query_string": query.urlencode(),
-            "can_edit": is_system_admin(request.user),
         },
     )
 

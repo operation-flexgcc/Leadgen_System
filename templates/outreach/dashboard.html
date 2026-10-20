@@ -3,15 +3,15 @@
 {% block content %}
 <section class="page-heading heading-with-action">
     <div>
-        <p class="eyebrow">{% if current_user_can_view_all_outreach %}Team overview{% else %}My pipeline and role queue{% endif %}</p>
+        <p class="eyebrow">{% if current_user_is_manager %}Team overview{% else %}My pipeline and role queue{% endif %}</p>
         <h1>Good {% now "H" as current_hour %}{% if current_hour < "12" %}morning{% elif current_hour < "17" %}afternoon{% else %}evening{% endif %}, {{ user.first_name|default:"there" }}</h1>
-        <p>{% if current_user_is_read_only %}Review activity across every outreach class and operator. This account cannot add or change records.{% elif current_user_is_manager %}Compare activity across every outreach class and operator.{% elif current_user_is_submitter %}Historical outreach records are preserved here. New leads use the simplified submission form.{% else %}Prioritize follow-ups and keep every prospect moving through the approved playbook.{% endif %}</p>
+        <p>{% if current_user_is_manager %}Compare activity across every outreach class and operator.{% elif current_user_is_submitter %}Historical outreach records are preserved here. New leads use the simplified submission form.{% else %}Prioritize follow-ups and keep every prospect moving through the approved playbook.{% endif %}</p>
     </div>
     <div class="heading-actions">
         <a class="button-secondary" href="{% url 'company_export' 'csv' %}">Download CSV</a>
         <a class="button-secondary" href="{% url 'company_export' 'xlsx' %}">Download XLSX</a>
-        {% if not current_user_is_read_only %}<a class="button-secondary" href="{% url 'prospect_bulk_import' %}">Import CSV</a>
-        <a class="button" href="{% url 'prospect_create' %}">{% if current_user_is_submitter %}+ Submit lead{% else %}+ Add prospect{% endif %}</a>{% endif %}
+        <a class="button-secondary" href="{% url 'prospect_bulk_import' %}">Import CSV</a>
+        <a class="button" href="{% url 'prospect_create' %}">{% if current_user_is_submitter %}+ Submit lead{% else %}+ Add prospect{% endif %}</a>
     </div>
 </section>
 
@@ -19,7 +19,7 @@
     <a class="metric-card metric-accent" href="?">
         <span>Total prospects</span>
         <strong>{{ summary.total }}</strong>
-        {% if current_user_can_view_all_outreach %}<small>{{ summary.unassigned }} unassigned · {{ operator_count }} active outreach user{{ operator_count|pluralize }}</small>{% else %}<small>Assigned to you or ready to claim</small>{% endif %}
+        {% if current_user_is_manager %}<small>{{ summary.unassigned }} unassigned · {{ operator_count }} active outreach user{{ operator_count|pluralize }}</small>{% else %}<small>Assigned to you or ready to claim</small>{% endif %}
     </a>
     <a class="metric-card" href="?due=today">
         <span>Actions today</span>
@@ -38,7 +38,7 @@
     </a>
 </section>
 
-{% if current_user_can_view_all_outreach %}
+{% if current_user_is_manager %}
 <section class="summary-group" aria-label="Prospects by user class">
     <span class="summary-label">User class</span>
     <div class="status-strip">
@@ -101,7 +101,7 @@
             <label for="{{ filter_form.claim_status.id_for_label }}">Claim status</label>
             {{ filter_form.claim_status }}
         </div>
-        {% if current_user_can_view_all_outreach %}
+        {% if current_user_is_manager %}
         <div>
             <label for="{{ filter_form.workstream.id_for_label }}">User class</label>
             {{ filter_form.workstream }}
@@ -111,7 +111,7 @@
             <label for="{{ filter_form.outreach_count.id_for_label }}">Outreaches</label>
             {{ filter_form.outreach_count }}
         </div>
-        {% if current_user_can_view_all_outreach %}
+        {% if current_user_is_manager %}
         <div>
             <label for="{{ filter_form.owner.id_for_label }}">Outreach user</label>
             {{ filter_form.owner }}
@@ -130,7 +130,7 @@
                 <tr>
                     <th>Company</th>
                     <th>Contact</th>
-                    {% if current_user_can_view_all_outreach %}<th>User class</th><th>Assigned user</th>{% endif %}
+                    {% if current_user_is_manager %}<th>User class</th><th>Assigned user</th>{% endif %}
                     <th>Stage / status</th>
                     <th>Outreaches</th>
                     <th>Next action</th>
@@ -149,7 +149,7 @@
                         <span class="contact-name">{{ prospect.contact_name|default:"Not provided" }}</span>
                         <span class="cell-secondary">{{ prospect.contact_email|default:prospect.contact_phone|default:"No contact channel yet" }}</span>
                     </td>
-                    {% if current_user_can_view_all_outreach %}
+                    {% if current_user_is_manager %}
                     <td><span class="role-badge role-{{ prospect.workstream }}">{{ prospect.get_workstream_display }}</span></td>
                     <td>
                         {% if prospect.owner %}<span class="owner-pill">{{ prospect.owner.get_full_name|default:prospect.owner.email }}</span>{% else %}<span class="muted">Unassigned</span>{% endif %}
@@ -194,8 +194,8 @@
     <div class="empty-state">
         <div class="empty-icon">◎</div>
         <h3>No prospects match these filters</h3>
-        <p>Clear the filters{% if not current_user_is_read_only %} or add a new prospect to the pipeline{% endif %}.</p>
-        {% if not current_user_is_read_only %}<a class="button" href="{% url 'prospect_create' %}">Add prospect</a>{% endif %}
+        <p>Clear the filters or add a new prospect to the pipeline.</p>
+        <a class="button" href="{% url 'prospect_create' %}">Add prospect</a>
     </div>
     {% endif %}
 </section>
