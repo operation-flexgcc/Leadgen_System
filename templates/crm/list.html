@@ -8,7 +8,7 @@
     <p>{% if current_user_can_view_crm %}Shared visibility. Assigned executives manage their own records; managers can reassign.{% else %}Track the leads you have handed off for executive follow-up.{% endif %}</p></div>
     <div class="heading-actions">
         {% if current_user_is_submitter or current_user_is_manager %}<a class="button" href="{% url 'crm_submit' %}">+ Submit lead</a>{% endif %}
-        {% if current_user_is_system_admin %}<a class="button-secondary" href="{% url 'crm_migration_review' %}">Review historical leads</a>{% endif %}
+        {% if current_user_can_view_users %}<a class="button-secondary" href="{% url 'crm_migration_review' %}">Review historical leads</a>{% endif %}
     </div>
 </section>
 <section class="metric-grid" aria-label="Filtered results summary">

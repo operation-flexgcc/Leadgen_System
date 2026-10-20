@@ -3,7 +3,7 @@
 {% block content %}
 <section class="page-heading heading-with-action">
     <div>
-        <a class="back-link" href="{% url 'prospect_bulk_import' %}">← Import another CSV</a>
+        {% if not current_user_is_read_only %}<a class="back-link" href="{% url 'prospect_bulk_import' %}">← Import another CSV</a>{% endif %}
         <p class="eyebrow">Bulk ingestion result</p>
         <h1>{{ batch.source_filename }}</h1>
         <p>Imported {{ batch.created_at|date:"j M Y, H:i" }} by {{ batch.uploaded_by.get_full_name|default:batch.uploaded_by.email }}.</p>

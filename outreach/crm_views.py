@@ -21,7 +21,9 @@ from .crm_forms import (
 from .models import Escalation, Opportunity, Prospect
 from .permissions import (
     can_edit_lead,
+    can_view_user_access,
     can_view_crm,
+    is_ai_user,
     is_manager,
     is_submission_user,
     is_system_admin,
@@ -33,8 +35,10 @@ from .permissions import (
 def legacy_routing(request):
     from . import legacy_handoffs
 
-    if not is_system_admin(request.user):
-        raise PermissionDenied("System administrator access is required.")
+    if not can_view_user_access(request.user):
+        raise PermissionDenied("System administration visibility is required.")
+    if request.method == "POST" and not is_system_admin(request.user):
+        raise PermissionDenied("AI user access is read-only.")
     action = request.POST.get("action")
     form = LegacyRoutingForm(request.POST if action == "save_routes" else None)
     if request.method == "POST":
@@ -63,6 +67,7 @@ def legacy_routing(request):
         "form": form, "rows": rows, "ready_count": len(targets),
         "blocked_count": len(rows) - len(targets),
         "preview_token": signing.dumps({"user": request.user.pk, "targets": targets}, salt="legacy-cae-backfill", compress=True),
+        "can_edit": is_system_admin(request.user),
     })
     response["Cache-Control"] = "private, no-store"
     return response
@@ -229,6 +234,8 @@ def submit(request):
 def handoff(request, pk):
     from .views import get_scoped_prospect
 
+    if is_ai_user(request.user):
+        raise PermissionDenied("AI user access is read-only.")
     prospect = get_scoped_prospect(request.user, pk)
     if not (is_manager(request.user) or prospect.owner_id == request.user.pk):
         raise PermissionDenied("Claim this prospect before escalating it.")
@@ -383,7 +390,7 @@ def comment(request, pk):
 
 @login_required
 def migration_review(request):
-    if not is_system_admin(request.user):
+    if not can_view_user_access(request.user):
         raise PermissionDenied
     candidates = crm.review_candidates()
     search = request.GET.get("search", "").strip()
@@ -400,6 +407,7 @@ def migration_review(request):
             "page_obj": Paginator(candidates, 25).get_page(request.GET.get("page")),
             "search": search,
             "query_string": query.urlencode(),
+            "can_edit": is_system_admin(request.user),
         },
     )
 

@@ -1,10 +1,11 @@
 from urllib.parse import urlencode
 
+from django.http import HttpResponseForbidden
 from django.shortcuts import redirect
-from django.urls import reverse
+from django.urls import resolve, Resolver404, reverse
 from django.utils.cache import patch_cache_control
 
-from .permissions import assigned_roles
+from .permissions import assigned_roles, is_ai_user
 
 
 ACTIVE_ROLE_SESSION_KEY = "outreach_active_role"
@@ -25,6 +26,26 @@ class ActiveRoleMiddleware:
                 request.session.pop(ACTIVE_ROLE_SESSION_KEY, None)
                 selected = None
             request.user._active_role = roles[0] if len(roles) == 1 else selected
+            # Allow only session actions and the user's own role-scoped API
+            # credentials. A URL prefix must not exempt account-editing routes.
+            try:
+                route_name = resolve(request.path_info).url_name
+            except Resolver404:
+                route_name = None
+            read_only_exempt = route_name in {
+                "choose_role",
+                "account_logout",
+                "api_access",
+                "api_access_token_revoke",
+            }
+            if (
+                is_ai_user(request.user)
+                and request.method not in {"GET", "HEAD", "OPTIONS"}
+                and not read_only_exempt
+            ):
+                response = HttpResponseForbidden("AI user access is read-only.")
+                patch_cache_control(response, no_store=True, private=True)
+                return response
             exempt = (
                 request.path in {reverse("choose_role"), reverse("login"), reverse("health")}
                 or request.path.startswith(("/accounts/", "/api/", "/static/"))
