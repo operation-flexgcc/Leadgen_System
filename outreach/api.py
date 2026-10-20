@@ -32,7 +32,7 @@ from .models import (
     Prospect,
     ProspectUpdateAudit,
 )
-from .permissions import active_role, is_manager
+from .permissions import active_role, can_view_all_outreach, is_ai_user, is_manager
 from .workflows import sync_prospect_from_outreach
 from .legacy_handoffs import ensure_handoff, validate_legacy_handoff
 
@@ -165,6 +165,8 @@ def api_token_required(view):
             request.api_user = authenticate_access_token(raw_token.strip())
         except ApiTokenError as error:
             return _json_error(str(error), 401)
+        if is_ai_user(request.api_user) and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            return _json_error("AI user access is read-only.", 403)
         response = view(request, *args, **kwargs)
         response["Cache-Control"] = "no-store"
         return response
@@ -847,7 +849,7 @@ def _outreach_form_errors(form, *, prospect, submitted_fields):
 
 
 def _api_user_can_access_prospect(user, prospect):
-    return is_manager(user) or (
+    return can_view_all_outreach(user) or (
         prospect.owner_id == user.id and prospect.workstream == active_role(user)
     )
 

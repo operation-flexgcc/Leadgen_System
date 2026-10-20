@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from .bulk_import import MAX_CSV_SIZE_BYTES
 from .models import Outreach, Profile, Prospect
-from .permissions import active_role, is_manager, role_membership_query
+from .permissions import active_role, can_view_all_outreach, is_manager, role_membership_query
 
 
 class DateInput(forms.DateInput):
@@ -493,7 +493,7 @@ class DashboardFilterForm(forms.Form):
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
-        if is_manager(user):
+        if can_view_all_outreach(user):
             self.fields["owner"].queryset = (
                 get_user_model()
                 .objects.filter(role_membership_query(Prospect.Workstream.values), is_active=True)

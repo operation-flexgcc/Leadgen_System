@@ -14,8 +14,9 @@ from outreach.api_tokens import ApiTokenError, authenticate_access_token, issue_
 from outreach.crm_forms import executives
 from outreach.forms import ProspectForm, UserProvisionForm
 from outreach.middleware import ACTIVE_ROLE_SESSION_KEY
-from outreach.models import ApiAccessToken, Escalation, Profile, Prospect
-from outreach.permissions import can_edit_lead, is_manager
+from outreach.models import ApiAccessToken, Escalation, Opportunity, Profile, Prospect
+from outreach.permissions import can_edit_lead, can_view_all_outreach, can_view_crm, is_manager
+from outreach.tests.test_company_api import CompanyApiTestMixin
 
 
 class MultipleRoleTests(TestCase):
@@ -54,7 +55,7 @@ class MultipleRoleTests(TestCase):
         user = get_user_model().objects.get(email="new@example.com")
         self.assertEqual(set(user.profile.assigned_roles), {"inside_sales", "account_executive"})
         response = self.client.get(reverse("user_update", args=[user.pk]))
-        self.assertContains(response, 'name="roles"', count=6)
+        self.assertContains(response, 'name="roles"', count=7)
         self.assertEqual(set(response.context["form"].initial["roles"]), {"inside_sales", "account_executive"})
         response = self.client.post(reverse("user_update", args=[user.pk]), {
             "full_name": "Multiple Roles", "email": user.email, "roles": ["intern", "manager"],
@@ -260,6 +261,151 @@ class MultipleRoleTests(TestCase):
         FlexGCCSocialAccountAdapter().pre_social_login(RequestFactory().get("/"), sociallogin)
         self.multi.profile.refresh_from_db()
         self.assertEqual(set(self.multi.profile.assigned_roles), {"inside_sales", "account_executive", "system_admin"})
+
+
+class AIUserRoleTests(CompanyApiTestMixin, TestCase):
+    def setUp(self):
+        self.ai_user = self.make_user(
+            "ai.helper@flexgcc.com", Profile.Role.AI_USER, "AI Helper"
+        )
+        self.intern = self.make_user("intern@ai-role.test", name="Isha Intern")
+        self.inside = self.make_user(
+            "inside@ai-role.test", Profile.Role.INSIDE_SALES, "Ivan Inside"
+        )
+        self.executive = self.make_user(
+            "executive@ai-role.test",
+            Profile.Role.ACCOUNT_EXECUTIVE,
+            "Alex Executive",
+        )
+        self.admin = self.make_user(
+            "admin@ai-role.test", Profile.Role.SYSTEM_ADMIN, "Ada Admin"
+        )
+        self.first = self.make_prospect(
+            self.intern, "Intern Advisory", "https://intern-ai-role.example.com"
+        )
+        self.second = self.make_prospect(
+            self.inside, "Inside Advisory", "https://inside-ai-role.example.com"
+        )
+        self.lead = Escalation.objects.create(
+            prospect=self.first,
+            assigned_to=self.executive,
+            escalated_by=self.intern,
+            source_channel=self.first.workstream,
+            context="Qualified handoff for read-only verification.",
+        )
+        self.opportunity = Opportunity.objects.create(
+            escalation=self.lead,
+            name="Read-only opportunity",
+            requirements="Review the existing requirements.",
+        )
+
+    def test_ai_role_has_organization_wide_read_visibility_without_manager_writes(self):
+        self.assertTrue(can_view_all_outreach(self.ai_user))
+        self.assertTrue(can_view_crm(self.ai_user))
+        self.assertFalse(is_manager(self.ai_user))
+        self.assertFalse(can_edit_lead(self.ai_user, self.lead))
+
+        self.client.force_login(self.ai_user)
+        dashboard = self.client.get(reverse("dashboard"))
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertContains(dashboard, self.first.company_name)
+        self.assertContains(dashboard, self.second.company_name)
+        self.assertContains(dashboard, "Team overview")
+        self.assertNotContains(dashboard, "+ Add prospect")
+        self.assertNotContains(dashboard, "Import CSV")
+
+        users = self.client.get(reverse("user_list"))
+        self.assertEqual(users.status_code, 200)
+        self.assertContains(users, self.admin.email)
+        self.assertContains(users, "View only")
+        self.assertNotContains(users, reverse("user_create"))
+        self.assertNotContains(users, reverse("user_update", args=[self.admin.pk]))
+
+        lead = self.client.get(self.lead.get_absolute_url())
+        self.assertContains(lead, "Read-only view")
+        self.assertNotContains(lead, "Save changes")
+        self.assertEqual(
+            self.client.get(reverse("crm_opportunity_list")).status_code, 200
+        )
+        opportunity = self.client.get(self.opportunity.get_absolute_url())
+        self.assertContains(opportunity, "Read-only view")
+
+    def test_ai_browser_role_cannot_open_or_submit_mutation_workflows(self):
+        self.client.force_login(self.ai_user)
+        for route, args in [
+            ("prospect_create", ()),
+            ("prospect_bulk_import", ()),
+            ("prospect_update", (self.first.pk,)),
+            ("user_create", ()),
+            ("user_update", (self.admin.pk,)),
+            ("user_delete", (self.admin.pk,)),
+            ("crm_submit", ()),
+            ("crm_convert", (self.lead.pk,)),
+        ]:
+            with self.subTest(route=route):
+                self.assertEqual(self.client.get(reverse(route, args=args)).status_code, 403)
+
+        original_name = self.first.company_name
+        response = self.client.post(reverse("prospect_claim", args=[self.first.pk]))
+        self.assertEqual(response.status_code, 403)
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.company_name, original_name)
+
+    def test_ai_api_token_can_read_every_scope_and_rejects_all_writes(self):
+        token = issue_access_token(self.ai_user)
+        client = Client()
+        headers = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+        for route, args in [
+            ("api_company_detail", (self.first.company_id,)),
+            ("api_prospect_detail", (self.first.pk,)),
+            ("api_prospect_outreach_list", (self.second.pk,)),
+            ("api_crm_leads", ()),
+            ("api_crm_opportunities", ()),
+        ]:
+            with self.subTest(route=route):
+                self.assertEqual(
+                    client.get(reverse(route, args=args), **headers).status_code, 200
+                )
+
+        attempts = [
+            client.patch(
+                reverse("api_company_detail", args=[self.first.company_id]),
+                json.dumps({"contact_name": "Changed"}),
+                content_type="application/json",
+                **headers,
+            ),
+            client.patch(
+                reverse("api_prospect_detail", args=[self.first.pk]),
+                json.dumps({"comments": "Changed"}),
+                content_type="application/json",
+                **headers,
+            ),
+            client.post(
+                reverse("api_prospect_outreach_list", args=[self.first.pk]),
+                json.dumps(
+                    {
+                        "activity_type": "follow_up",
+                        "medium": "email",
+                        "outreach_date": "2026-10-20",
+                    }
+                ),
+                content_type="application/json",
+                **headers,
+            ),
+            client.post(
+                reverse("api_crm_leads"),
+                json.dumps({"company_name": "Forbidden"}),
+                content_type="application/json",
+                **headers,
+            ),
+        ]
+        for response in attempts:
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json()["error"], "AI user access is read-only.")
+        self.first.refresh_from_db()
+        self.assertEqual(self.first.contact_name, "Asha Rao")
+        self.assertEqual(self.first.outreaches.count(), 0)
 
 
 class RoleMigrationTests(TransactionTestCase):

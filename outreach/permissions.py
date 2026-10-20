@@ -31,7 +31,7 @@ def is_account_executive(user):
 
 
 def can_view_crm(user):
-    return is_manager(user) or is_account_executive(user)
+    return can_view_all_outreach(user) or is_account_executive(user)
 
 
 def can_edit_lead(user, lead):
@@ -48,3 +48,19 @@ def is_manager(user) -> bool:
 
 def is_system_admin(user) -> bool:
     return active_role(user) == Profile.Role.SYSTEM_ADMIN
+
+
+def is_ai_user(user) -> bool:
+    return active_role(user) == Profile.Role.AI_USER
+
+
+def can_view_all_outreach(user) -> bool:
+    """Return whether the active role has organization-wide read visibility."""
+
+    return is_manager(user) or is_ai_user(user)
+
+
+def can_view_user_access(user) -> bool:
+    """System admins manage access; AI users may inspect it read-only."""
+
+    return is_system_admin(user) or is_ai_user(user)

@@ -31,7 +31,18 @@ from .forms import (
     UserProvisionForm,
 )
 from .models import Outreach, Profile, Prospect, ProspectImportBatch
-from .permissions import active_role, assigned_roles, is_account_executive, is_manager, is_submission_user, is_system_admin, role_membership_query
+from .permissions import (
+    active_role,
+    assigned_roles,
+    can_view_all_outreach,
+    can_view_user_access,
+    is_account_executive,
+    is_ai_user,
+    is_manager,
+    is_submission_user,
+    is_system_admin,
+    role_membership_query,
+)
 from .workflows import sync_prospect_from_outreach
 from .legacy_handoffs import ensure_handoff
 
@@ -102,7 +113,7 @@ def health(request):
 
 def scoped_prospects(user):
     queryset = Prospect.objects.select_related("owner", "owner__profile")
-    if is_manager(user):
+    if can_view_all_outreach(user):
         return queryset
     role = active_role(user)
     if role not in Prospect.Workstream.values:
@@ -268,7 +279,7 @@ def dashboard(request, history=False):
         "today": today,
         "operator_count": (
             Profile.objects.filter(role_membership_query(Prospect.Workstream.values, prefix=""), user__is_active=True).distinct().count()
-            if is_manager(request.user)
+            if can_view_all_outreach(request.user)
             else None
         ),
     }
@@ -278,6 +289,8 @@ def dashboard(request, history=False):
 @login_required
 @require_http_methods(["GET", "POST"])
 def prospect_create(request):
+    if is_ai_user(request.user):
+        raise PermissionDenied("AI user access is read-only.")
     if is_submission_user(request.user):
         return redirect("crm_submit")
     if is_account_executive(request.user):
@@ -305,7 +318,7 @@ def _get_scoped_import_batch(user, batch_id):
         "owner",
         "rolled_back_by",
     )
-    if not is_manager(user):
+    if not can_view_all_outreach(user):
         batches = batches.filter(uploaded_by=user, target_workstream=active_role(user))
     return get_object_or_404(batches, pk=batch_id)
 
@@ -313,6 +326,8 @@ def _get_scoped_import_batch(user, batch_id):
 @login_required
 @require_http_methods(["GET", "POST"])
 def prospect_bulk_import(request):
+    if is_ai_user(request.user):
+        raise PermissionDenied("AI user access is read-only.")
     form = BulkProspectImportForm(
         request.POST or None,
         request.FILES or None,
@@ -408,6 +423,8 @@ def prospect_bulk_import_rollback(request, batch_id):
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def prospect_update(request, pk):
+    if is_ai_user(request.user):
+        raise PermissionDenied("AI user access is read-only.")
     prospect = get_object_or_404(
         scoped_prospects(request.user).select_related(None).select_for_update(), pk=pk
     )
@@ -532,6 +549,8 @@ def prospect_claim(request, pk):
 @require_http_methods(["GET", "POST"])
 @transaction.atomic
 def outreach_update(request, pk):
+    if is_ai_user(request.user):
+        raise PermissionDenied("AI user access is read-only.")
     outreach = get_object_or_404(Outreach.objects.select_related("prospect"), pk=pk)
     prospect = get_scoped_prospect(request.user, outreach.prospect_id)
     prospect = Prospect.objects.select_for_update().get(pk=prospect.pk)
@@ -575,7 +594,8 @@ def invalidate_user_sessions(user):
 
 @login_required
 def user_list(request):
-    require_system_admin(request.user)
+    if not can_view_user_access(request.user):
+        raise PermissionDenied("System administration visibility is required.")
     users = (
         Profile.objects.select_related("user")
         .prefetch_related("additional_roles")
@@ -586,7 +606,8 @@ def user_list(request):
     }
     for key, role in {"interns": Profile.Role.INTERN, "inside_sales": Profile.Role.INSIDE_SALES,
                       "linkedin_outreach": Profile.Role.LINKEDIN_OUTREACH, "executives": Profile.Role.ACCOUNT_EXECUTIVE,
-                      "managers": Profile.Role.MANAGER, "admins": Profile.Role.SYSTEM_ADMIN}.items():
+                      "managers": Profile.Role.MANAGER, "admins": Profile.Role.SYSTEM_ADMIN,
+                      "ai_users": Profile.Role.AI_USER}.items():
         counts[key] = users.filter(role_membership_query([role], prefix=""), user__is_active=True).distinct().count()
     return render(request, "outreach/user_list.html", {"profiles": users, "counts": counts})
 
