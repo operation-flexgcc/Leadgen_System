@@ -11,7 +11,7 @@
         <a class="button-secondary" href="{% url 'company_export' 'csv' %}">Download CSV</a>
         <a class="button-secondary" href="{% url 'company_export' 'xlsx' %}">Download XLSX</a>
         {% if not current_user_is_read_only %}<a class="button-secondary" href="{% url 'prospect_bulk_import' %}">Import CSV</a>
-        <a class="button" href="{% url 'prospect_create' %}">{% if current_user_is_submitter %}+ Submit lead{% else %}+ Add prospect{% endif %}</a>{% endif %}
+        <a class="button" href="{% url 'crm_submit' %}">+ Add lead</a>{% endif %}
     </div>
 </section>
 
@@ -113,10 +113,12 @@
         </div>
         {% if current_user_can_view_all_outreach %}
         <div>
-            <label for="{{ filter_form.owner.id_for_label }}">Outreach user</label>
+            <label for="{{ filter_form.owner.id_for_label }}">Salesperson</label>
             {{ filter_form.owner }}
         </div>
         {% endif %}
+        <div><label for="{{ filter_form.next_owner.id_for_label }}">Next-step owner</label>{{ filter_form.next_owner }}</div>
+        <div><label for="{{ filter_form.sort.id_for_label }}">Sort by</label>{{ filter_form.sort }}</div>
         <div class="filter-actions">
             <button class="button button-small" type="submit">Apply</button>
             <a class="button-secondary button-small" href="{% if current_user_is_submitter %}{% url 'outreach_history' %}{% else %}{% url 'dashboard' %}{% endif %}">Clear</a>
@@ -130,7 +132,8 @@
                 <tr>
                     <th>Company</th>
                     <th>Contact</th>
-                    {% if current_user_can_view_all_outreach %}<th>User class</th><th>Assigned user</th>{% endif %}
+                    {% if current_user_can_view_all_outreach %}<th>User class</th><th>Salesperson</th>{% endif %}
+                    <th>Next-step owner</th>
                     <th>Stage / status</th>
                     <th>Outreaches</th>
                     <th>Next action</th>
@@ -152,9 +155,10 @@
                     {% if current_user_can_view_all_outreach %}
                     <td><span class="role-badge role-{{ prospect.workstream }}">{{ prospect.get_workstream_display }}</span></td>
                     <td>
-                        {% if prospect.owner %}<span class="owner-pill">{{ prospect.owner.get_full_name|default:prospect.owner.email }}</span>{% else %}<span class="muted">Unassigned</span>{% endif %}
+                        {{ prospect.salesperson_name|default:prospect.salesperson_email }}
                     </td>
                     {% endif %}
+                    <td>{{ prospect.next_owner_name|default:prospect.next_owner_email|default:'Unassigned' }}</td>
                     <td>
                         <span class="stage-label">{{ prospect.get_stage_display }}</span>
                         <span class="cell-secondary"><span class="badge badge-{{ prospect.status }}">{{ prospect.get_status_display }}</span></span>
@@ -163,10 +167,10 @@
                         <span class="outreach-count">{{ prospect.outreach_count }}<small>/5</small></span>
                     </td>
                     <td>
-                        {% if prospect.next_action %}
-                        <span>{{ prospect.next_action|truncatechars:42 }}</span>
-                        <span class="cell-secondary {% if prospect.next_action_date < today %}text-danger{% elif prospect.next_action_date == today %}text-today{% endif %}">
-                            {% if prospect.next_action_date == today %}Today{% else %}{{ prospect.next_action_date|date:"j M Y" }}{% endif %}
+                        {% if prospect.effective_action %}
+                        <span>{{ prospect.effective_action|truncatechars:42 }}</span>
+                        <span class="cell-secondary {% if prospect.effective_action_date < today %}text-danger{% elif prospect.effective_action_date == today %}text-today{% endif %}">
+                            {% if prospect.effective_action_date == today %}Today{% else %}{{ prospect.effective_action_date|date:"j M Y" }}{% endif %}
                         </span>
                         {% else %}
                         <span class="muted">Not set</span>

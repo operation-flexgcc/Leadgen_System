@@ -3,7 +3,8 @@ from django.contrib.auth.decorators import login_required
 from django.core import signing
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
-from django.db.models import Count, F, Q, Sum
+from django.db.models import Case, Count, F, Q, Sum, When
+from django.db.models.functions import Coalesce, Lower
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
@@ -11,6 +12,7 @@ from django.views.decorators.http import require_http_methods, require_POST
 from . import crm
 from .crm_forms import (
     CRMFilterForm,
+    DeadLeadForm,
     CommentForm,
     HandoffForm,
     LeadUpdateForm,
@@ -21,6 +23,7 @@ from .crm_forms import (
 from .models import Escalation, Opportunity, Prospect
 from .permissions import (
     can_edit_lead,
+    can_submit_lead,
     can_view_user_access,
     can_view_crm,
     is_ai_user,
@@ -90,6 +93,22 @@ def api_guide(request):
 
 def filtered_records(rows, params, pipeline=False):
     form = CRMFilterForm(params or None, pipeline=pipeline)
+    prefix = "escalation__" if pipeline else ""
+    rows = rows.annotate(
+        salesperson_id=Coalesce(prefix + "prospect__owner_id", prefix + "prospect__created_by_id"),
+        salesperson_name=Coalesce(prefix + "prospect__owner__first_name", prefix + "prospect__created_by__first_name"),
+        salesperson_email=Coalesce(prefix + "prospect__owner__email", prefix + "prospect__created_by__email"),
+        next_owner_id=Coalesce("next_action_owner_id", prefix + "assigned_to_id"),
+        next_owner_name=Coalesce("next_action_owner__first_name", prefix + "assigned_to__first_name"),
+        next_owner_email=Coalesce("next_action_owner__email", prefix + "assigned_to__email"),
+    )
+    if not pipeline:
+        rows = rows.annotate(**{
+            "next_owner_" + suffix: Case(
+                When(opportunity__isnull=False, then=Coalesce("opportunity__next_action_owner" + field, "assigned_to" + field)),
+                default=F("next_owner_" + suffix),
+            ) for suffix, field in [("id", "_id"), ("name", "__first_name"), ("email", "__email")]
+        })
     if not params:
         return form, rows
     if not form.is_valid():
@@ -109,6 +128,13 @@ def filtered_records(rows, params, pipeline=False):
     for field in ["assigned_to", "source_channel"]:
         if data[field]:
             rows = rows.filter(**{prefix + field: data[field]})
+    for field in ["salesperson", "next_owner"]:
+        if data[field]:
+            rows = rows.filter(**{field + "_id": data[field].pk})
+    if data["lead_source"]:
+        rows = rows.filter(**{prefix + "prospect__lead_source": data["lead_source"]})
+    if data["approval_status"]:
+        rows = rows.filter(**{prefix + "approval_status": data["approval_status"]})
     if data["status"]:
         rows = rows.filter(**{"stage" if pipeline else "status": data["status"]})
     for key, lookup in [
@@ -124,6 +150,8 @@ def filtered_records(rows, params, pipeline=False):
             rows = rows.filter(expected_close_date__lte=data["close_to"])
     due = data["due"]
     if due:
+        if not pipeline:
+            rows = rows.filter(approval_status=Escalation.Approval.APPROVED)
         rows = rows.exclude(
             **(
                 {"stage__in": [Opportunity.Stage.WON, Opportunity.Stage.LOST]}
@@ -147,6 +175,16 @@ def filtered_records(rows, params, pipeline=False):
     return form, rows
 
 
+def ordered_records(rows, form):
+    sort = form.cleaned_data.get("sort", "") if form.is_bound and form.is_valid() else ""
+    if sort:
+        key = sort.lstrip("-")
+        name = Lower(key + "_name")
+        email = Lower(key + "_email")
+        return rows.order_by(name.desc(nulls_last=True) if sort.startswith("-") else name.asc(nulls_last=True), email.desc() if sort.startswith("-") else email.asc(), "pk")
+    return rows.order_by(F("next_action_date").asc(nulls_last=True), "-pk")
+
+
 def list_context(request, rows, pipeline=False):
     form, rows = filtered_records(rows, request.GET, pipeline=pipeline)
     active = rows.exclude(
@@ -158,19 +196,22 @@ def list_context(request, rows, pipeline=False):
             }
         )
     )
+    if not pipeline:
+        active = active.filter(approval_status=Escalation.Approval.APPROVED)
     today = timezone.localdate()
     summary = {
         "total": rows.count(),
         "active": active.count(),
         "overdue": active.filter(next_action_date__lt=today).count(),
         "today": active.filter(next_action_date=today).count(),
+        "pending": rows.filter(**{("escalation__" if pipeline else "") + "approval_status": Escalation.Approval.PENDING}).count(),
     }
     query = request.GET.copy()
     query.pop("page", None)
     context = {
         "filter_form": form,
         "page_obj": Paginator(
-            rows.order_by(F("next_action_date").asc(nulls_last=True), "-pk"), 25
+            ordered_records(rows, form), 25
         ).get_page(request.GET.get("page")),
         "summary": summary,
         "query_string": query.urlencode(),
@@ -207,22 +248,22 @@ def opportunity_list(request):
 @login_required
 @require_http_methods(["GET", "POST"])
 def submit(request):
-    if not (is_manager(request.user) or is_submission_user(request.user)):
+    if not can_submit_lead(request.user):
         raise PermissionDenied
     form = SubmissionForm(user=request.user)
     if request.method == "POST":
         form, lead = crm.submit_lead(request.user, request.POST)
         if lead:
-            messages.success(request, "Lead submitted to the account executive.")
+            messages.success(request, "Lead added and approved for executive follow-up." if lead.approval_status == "approved" else "Lead saved. Pending manager approval before executive follow-up.")
             return redirect(lead)
     return render(
         request,
         "crm/form.html",
         {
             "form": form,
-            "title": "Submit a lead",
-            "intro": "Add a lead ready for executive follow-up. Earlier outreach takes place outside this system.",
-            "submit_label": "Submit and escalate",
+            "title": "Add lead",
+            "intro": "One entry form for every sales role. Manager and system-admin submissions are approved immediately; other submissions wait for manager approval. Choose the Manager role to use your manager permissions.",
+            "submit_label": "Add lead",
             "back_url": "crm_lead_list",
             "executive_required": True,
         },
@@ -296,8 +337,44 @@ def lead_detail(request, pk):
             "activities": activity_page(request, lead),
             "opportunity": Opportunity.objects.filter(escalation=lead).first(),
             "pipeline_detail": False,
+            "dead_form": DeadLeadForm(initial={"version": lead.version}) if editable and not converted and lead.status != Escalation.Status.DROPPED else None,
         },
     )
+
+
+@login_required
+@require_POST
+def approve(request, pk):
+    form, lead = crm.approve_lead(request.user, pk, request.POST)
+    if lead:
+        messages.success(request, "Lead approved for executive follow-up.")
+    else:
+        messages.error(request, "; ".join(form.errors.as_text().splitlines()))
+    return redirect("crm_lead_detail", pk=pk)
+
+
+@login_required
+@require_POST
+def dead(request, pk):
+    form, lead = crm.mark_dead(request.user, pk, request.POST)
+    if lead:
+        messages.success(request, "Lead marked dead. Active follow-up cleared; history preserved.")
+    else:
+        messages.error(request, "; ".join(form.errors.as_text().splitlines()))
+    return redirect("crm_lead_detail", pk=pk)
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def remove_test(request, pk):
+    if not is_system_admin(request.user):
+        raise PermissionDenied
+    lead = get_object_or_404(Escalation.objects.select_related("prospect"), pk=pk, prospect__is_test=True)
+    if request.method == "POST":
+        crm.remove_test_lead(request.user, pk, request.POST.get("confirmation", ""))
+        messages.success(request, "Synthetic lead, CRM activity and any sample opportunity removed.")
+        return redirect("crm_lead_list")
+    return render(request, "crm/remove_test.html", {"lead": lead})
 
 
 @login_required
@@ -316,6 +393,7 @@ def convert(request, pk):
             "requirements": lead.context,
             "next_action": lead.next_action,
             "next_action_date": lead.next_action_date,
+            "next_action_owner": lead.next_action_owner_id,
         },
     )
     if request.method == "POST":

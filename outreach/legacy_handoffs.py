@@ -6,7 +6,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from .models import CRMActivity, Escalation, FounderCAEAssignment, Outreach, Prospect
-from .permissions import is_system_admin
+from .permissions import is_system_admin, is_manager
 
 
 ESCALATION_ACTIVITIES = (
@@ -108,6 +108,10 @@ def ensure_handoff(prospect, actor, *, historical=False, outreach=None):
         source_channel=prospect.workstream, historical=historical,
         escalated_at=escalated_at, context=context,
         next_action=prospect.next_action, next_action_date=prospect.next_action_date,
+        next_action_owner=prospect.next_action_owner,
+        approval_status=Escalation.Approval.APPROVED if historical or is_manager(actor) else Escalation.Approval.PENDING,
+        approved_by=actor if not historical and is_manager(actor) else None,
+        approved_at=timezone.now() if not historical and is_manager(actor) else None,
     )
     lead.full_clean()
     lead.save()

@@ -6,13 +6,17 @@
 <section class="detail-heading">
     <div><a class="back-link" href="{% if pipeline_detail %}{% url 'crm_opportunity_list' %}{% else %}{% url 'crm_lead_list' %}{% endif %}">← {% if pipeline_detail %}Sales pipeline{% else %}Escalated leads{% endif %}</a>
     <h1>{% if pipeline_detail %}{{ opportunity.name }}{% else %}{{ lead.prospect.company_name }}{% endif %}</h1>
-    <span class="role-badge">{{ lead.get_source_channel_display }}</span> <span class="stage-pill">{% if pipeline_detail %}{{ opportunity.get_stage_display }}{% else %}{{ lead.get_status_display }}{% endif %}</span></div>
+    <span class="role-badge">{% if lead.prospect.lead_source %}{{ lead.prospect.get_lead_source_display }}{% else %}{{ lead.get_source_channel_display }}{% endif %}</span> <span class="stage-pill">{% if pipeline_detail %}{{ opportunity.get_stage_display }}{% else %}{{ lead.get_status_display }}{% endif %}</span></div>
     <div class="detail-actions">
         {% if pipeline_detail %}<a class="button-secondary" href="{{ lead.get_absolute_url }}">Original handoff</a>
         {% elif opportunity and current_user_can_view_crm %}<a class="button" href="{{ opportunity.get_absolute_url }}">Open sales opportunity</a>
-        {% elif can_edit and lead.status != 'dropped' and lead.status != 'converted' %}<a class="button" href="{% url 'crm_convert' lead.pk %}">Move to sales pipeline</a>{% endif %}
+        {% elif can_edit and lead.approval_status == 'approved' and lead.status != 'dropped' and lead.status != 'converted' %}<a class="button" href="{% url 'crm_convert' lead.pk %}">Move to sales pipeline</a>{% endif %}
     </div>
 </section>
+{% if lead.prospect.is_test %}<p class="form-alert">Synthetic test record — not a real customer. Remove after verification. {% if current_user_is_system_admin %}<a href="{% url 'crm_remove_test' lead.pk %}">Remove synthetic record</a>{% endif %}</p>{% endif %}
+{% if lead.approval_status == 'pending' %}<section class="panel detail-panel"><h2>Pending manager approval</h2><p>The lead is saved. Executive follow-up starts after a manager approves it.</p>
+{% if current_user_is_manager %}<form method="post" action="{% url 'crm_approve' lead.pk %}">{% csrf_token %}<input type="hidden" name="version" value="{{ lead.version }}"><button class="button" type="submit">Approve lead</button></form>{% endif %}</section>{% endif %}
+{% if dead_form %}<section class="panel detail-panel"><form method="post" action="{% url 'crm_dead' lead.pk %}">{% csrf_token %}{{ dead_form.version }}<div class="field">{% include 'outreach/field.html' with field=dead_form.reason %}</div><button class="button-secondary" type="submit">Mark dead</button><small>Stops follow-up and preserves the lead and its history.</small></form></section>{% endif %}
 {% if not can_edit %}<p class="crm-readonly">Read-only view. Updates are made by the assigned executive or a manager.</p>{% endif %}
 <div class="detail-layout"><div class="detail-main">
 <section class="panel detail-panel"><h2>Company and handoff</h2>
@@ -25,7 +29,11 @@
         <div><dt>Phone</dt><dd>{{ lead.prospect.contact_phone|default:'Not provided' }}</dd></div>
         {% if lead.prospect.contact_linkedin_url %}<div><dt>LinkedIn</dt><dd><a href="{{ lead.prospect.contact_linkedin_url }}" target="_blank" rel="noopener noreferrer">Contact profile ↗</a></dd></div>{% endif %}
         <div><dt>Executive</dt><dd>{{ lead.assigned_to.get_full_name|default:lead.assigned_to.email }}{% if not lead.assigned_to.is_active %} (inactive — ask a manager to reassign){% endif %}</dd></div>
-        <div><dt>Original outreach owner</dt><dd>{{ lead.prospect.owner.get_full_name|default:lead.prospect.owner.email|default:'Unassigned' }}</dd></div>
+        <div><dt>Original outreach owner</dt><dd>{% if lead.prospect.owner %}{{ lead.prospect.owner.get_full_name|default:lead.prospect.owner.email }}{% else %}Unassigned{% endif %}</dd></div>
+        <div><dt>Salesperson / submitted by</dt><dd>{{ lead.prospect.created_by.get_full_name|default:lead.prospect.created_by.email }}</dd></div>
+        <div><dt>Lead source</dt><dd>{{ lead.prospect.get_lead_source_display|default:'Not recorded' }}</dd></div>
+        <div><dt>First contact date</dt><dd>{{ lead.prospect.first_contact_date|date:'j M Y'|default:'Not recorded' }}</dd></div>
+        <div><dt>Approval</dt><dd>{{ lead.get_approval_status_display }}{% if lead.approved_by %} · {{ lead.approved_by.get_full_name|default:lead.approved_by.email }}{% endif %}</dd></div>
         <div><dt>Escalated by</dt><dd>{% if lead.escalated_by %}{{ lead.escalated_by.get_full_name|default:lead.escalated_by.email }}{% else %}Unknown (historical){% endif %}</dd></div>
         <div><dt>Escalation date</dt><dd>{{ lead.escalated_at|date:'j M Y, H:i T'|default:'Unknown (historical record)' }}</dd></div>
         <div><dt>Recorded in CRM</dt><dd>{{ lead.created_at|date:'j M Y, H:i T' }}{% if lead.historical %} · Reviewed historical handoff{% endif %}</dd></div>
@@ -41,10 +49,12 @@
         <div><dt>Probability</dt><dd>{{ opportunity.probability }}%</dd></div>
         <div><dt>Expected close</dt><dd>{{ opportunity.expected_close_date|date:'j M Y'|default:'Not set' }}</dd></div>
         <div><dt>Next action</dt><dd>{{ opportunity.next_action|default:'Not set' }} · {{ opportunity.next_action_date|date:'j M Y'|default:'No date' }}</dd></div>
+        <div><dt>Next-step owner</dt><dd>{% if opportunity.next_action_owner %}{{ opportunity.next_action_owner.get_full_name|default:opportunity.next_action_owner.email }}{% else %}{{ lead.assigned_to.get_full_name|default:lead.assigned_to.email }}{% endif %}</dd></div>
         {% if opportunity.closed_at %}<div><dt>Closed</dt><dd>{{ opportunity.closed_at|date:'j M Y, H:i T' }}</dd></div>{% endif %}
         {% if opportunity.closure_reason %}<div class="info-full"><dt>Closure reason</dt><dd>{{ opportunity.closure_reason|linebreaksbr }}</dd></div>{% endif %}
     {% else %}
         <div><dt>Next action</dt><dd>{{ lead.next_action|default:'Not set' }} · {{ lead.next_action_date|date:'j M Y'|default:'No date' }}</dd></div>
+        <div><dt>Next-step owner</dt><dd>{% if lead.next_action_owner %}{{ lead.next_action_owner.get_full_name|default:lead.next_action_owner.email }}{% else %}{{ lead.assigned_to.get_full_name|default:lead.assigned_to.email }}{% endif %}</dd></div>
         <div><dt>Discovery meeting</dt><dd>{% if lead.discovery_at %}{{ lead.discovery_at|timezone:lead.discovery_timezone|date:'j M Y, H:i' }} · {{ lead.discovery_timezone }}{% else %}Not scheduled{% endif %}</dd></div>
         <div class="info-full"><dt>Discovery outcome</dt><dd>{{ lead.discovery_outcome|default:'Not recorded'|linebreaksbr }}</dd></div>
         {% if lead.drop_reason %}<div class="info-full"><dt>Drop reason</dt><dd>{{ lead.drop_reason|linebreaksbr }}</dd></div>{% endif %}

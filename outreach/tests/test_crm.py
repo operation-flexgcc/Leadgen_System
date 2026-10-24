@@ -56,6 +56,9 @@ class CRMTests(CompanyApiTestMixin, TestCase):
             },
         )
         self.assertIsNotNone(lead, form.errors)
+        # Follow-up tests use an approved fixture; approval is tested separately.
+        Escalation.objects.filter(pk=lead.pk).update(approval_status="approved")
+        lead.refresh_from_db()
         return lead
 
     def update_data(self, lead, **overrides):
@@ -230,7 +233,6 @@ class CRMTests(CompanyApiTestMixin, TestCase):
         lead = self.handoff()
         cases = [
             ("next_action_date", {"next_action": "Call"}),
-            ("drop_reason", {"status": "dropped"}),
             ("discovery_outcome", {"status": "discovery_completed"}),
             ("discovery_at", {"status": "discovery_scheduled"}),
             ("discovery_timezone", {"discovery_timezone": "Invalid/City"}),
@@ -586,6 +588,8 @@ class CRMTests(CompanyApiTestMixin, TestCase):
         )
         self.assertEqual(result.status_code, 201, result.content)
         lead_id = result.json()["id"]
+        lead = Escalation.objects.get(pk=lead_id)
+        crm.approve_lead(self.manager, lead_id, {"version": lead.version})
         result = self.api(
             "post",
             "api_crm_convert",
@@ -634,6 +638,7 @@ class CRMTests(CompanyApiTestMixin, TestCase):
             {"assigned_to": self.ae.pk, "context": "Ready", "response_confirmed": True},
         )
         self.assertIsNotNone(lead, form.errors)
+        crm.approve_lead(self.manager, lead.pk, {"version": lead.version})
         self.convert(lead, estimated_value="200.00", currency="INR")
         self.client.force_login(self.ae)
         response = self.client.get(reverse("crm_opportunity_list"))
@@ -754,6 +759,7 @@ class CRMConcurrencyTests(CompanyApiTestMixin, TransactionTestCase):
 
     def test_concurrent_conversions_create_one_opportunity(self):
         lead_id = self.handoff()
+        Escalation.objects.filter(pk=lead_id).update(approval_status="approved")
 
         def convert():
             _, record = crm.convert_lead(
@@ -775,6 +781,7 @@ class CRMConcurrencyTests(CompanyApiTestMixin, TransactionTestCase):
 
     def test_concurrent_updates_accept_only_one_version(self):
         lead_id = self.handoff()
+        Escalation.objects.filter(pk=lead_id).update(approval_status="approved")
 
         def update():
             _, saved = crm.update_lead(

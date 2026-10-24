@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel detail-panel">
+<h1>Remove synthetic test record</h1>
+<p>This permanently removes <strong>{{ lead.prospect.company_name }}</strong>, its sample opportunity and CRM activity. Ordinary customer records cannot be removed with this action.</p>
+<form method="post">{% csrf_token %}
+<label for="confirmation">Type the exact company name to confirm</label>
+<input id="confirmation" name="confirmation" class="form-control" required autocomplete="off">
+<div class="form-actions"><button class="button-secondary" type="submit">Remove synthetic record permanently</button><a href="{{ lead.get_absolute_url }}">Cancel</a></div>
+</form></section>
+{% endblock %}

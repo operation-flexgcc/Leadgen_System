@@ -7,10 +7,11 @@
     <h1>{% if pipeline %}Sales pipeline{% elif current_user_can_view_crm %}Escalated leads{% else %}My handoffs{% endif %}</h1>
     <p>{% if current_user_can_view_crm %}Shared visibility. Assigned executives manage their own records; managers can reassign.{% else %}Track the leads you have handed off for executive follow-up.{% endif %}</p></div>
     <div class="heading-actions">
-        {% if current_user_is_submitter or current_user_is_manager %}<a class="button" href="{% url 'crm_submit' %}">+ Submit lead</a>{% endif %}
+        {% if current_user_can_submit_lead %}<a class="button" href="{% url 'crm_submit' %}">+ Add lead</a>{% endif %}
         {% if current_user_can_view_users %}<a class="button-secondary" href="{% url 'crm_migration_review' %}">Review historical leads</a>{% endif %}
     </div>
 </section>
+{% if summary.pending %}<p class="form-alert"><a href="?approval_status=pending">{{ summary.pending }} lead{{ summary.pending|pluralize }} pending manager approval</a></p>{% endif %}
 <section class="metric-grid" aria-label="Filtered results summary">
     <div class="metric-card metric-accent"><span>Total</span><strong>{{ summary.total }}</strong><small>Matching records</small></div>
     <div class="metric-card"><span>Active</span><strong>{{ summary.active }}</strong><small>Open follow-up</small></div>
@@ -25,18 +26,20 @@
 </form>
 <section class="panel">
     <div class="table-wrap"><table>
-    <thead><tr><th>{% if pipeline %}Opportunity{% else %}Company{% endif %}</th><th>Executive</th><th>Source / escalated</th><th>{% if pipeline %}Stage / value{% else %}Status{% endif %}</th><th>Next action</th>{% if pipeline %}<th>Expected close</th>{% endif %}</tr></thead>
+    <thead><tr><th>{% if pipeline %}Opportunity{% else %}Company{% endif %}</th><th>Salesperson</th><th>Executive</th><th>Lead source / channel</th><th>{% if pipeline %}Stage / value{% else %}Status{% endif %}</th><th>Next-step owner</th><th>Next action</th>{% if pipeline %}<th>Expected close</th>{% endif %}</tr></thead>
     <tbody>{% for record in page_obj %}<tr>
         <td><a href="{{ record.get_absolute_url }}"><strong>{% if pipeline %}{{ record.name }}{% else %}{{ record.prospect.company_name }}{% endif %}</strong></a><span class="cell-secondary">{% if pipeline %}{{ record.escalation.prospect.company_name }} · {{ record.escalation.prospect.contact_name }}{% else %}{{ record.prospect.contact_name }}{% endif %}</span></td>
+        <td>{{ record.salesperson_name|default:record.salesperson_email }}</td>
         {% if pipeline %}
         <td>{{ record.escalation.assigned_to.get_full_name|default:record.escalation.assigned_to.email }}{% if not record.escalation.assigned_to.is_active %}<span class="cell-secondary">Inactive — needs reassignment</span>{% endif %}</td>
-        <td>{{ record.escalation.get_source_channel_display }}<span class="cell-secondary">{{ record.escalation.escalated_at|date:'j M Y'|default:'Date unknown (historical)' }}</span></td>
+        <td>{{ record.escalation.prospect.get_lead_source_display|default:'Not recorded' }}<span class="cell-secondary">{{ record.escalation.get_source_channel_display }}</span></td>
         <td><span class="stage-pill">{{ record.get_stage_display }}</span><span class="cell-secondary">{% if record.estimated_value != None %}{{ record.currency }} {{ record.estimated_value|floatformat:2 }}{% else %}Value not set{% endif %} · {{ record.probability }}%</span></td>
         {% else %}
         <td>{{ record.assigned_to.get_full_name|default:record.assigned_to.email }}{% if not record.assigned_to.is_active %}<span class="cell-secondary">Inactive — needs reassignment</span>{% endif %}</td>
-        <td>{{ record.get_source_channel_display }}<span class="cell-secondary">{{ record.escalated_at|date:'j M Y'|default:'Date unknown (historical)' }}</span></td>
-        <td><span class="stage-pill">{{ record.get_status_display }}</span></td>
+        <td>{{ record.prospect.get_lead_source_display|default:'Not recorded' }}<span class="cell-secondary">{{ record.get_source_channel_display }}</span></td>
+        <td><span class="stage-pill">{{ record.get_status_display }}</span>{% if record.approval_status == 'pending' %}<span class="cell-secondary">Pending manager approval</span>{% endif %}{% if record.prospect.is_test %}<span class="cell-secondary">Synthetic test</span>{% endif %}</td>
         {% endif %}
+        <td>{{ record.next_owner_name|default:record.next_owner_email }}</td>
         <td>{% if not pipeline and record.status == 'converted' %}Managed in sales pipeline{% elif not pipeline and record.status == 'dropped' %}No active follow-up{% else %}{{ record.next_action|default:'Not set' }}<span class="cell-secondary">{{ record.next_action_date|date:'j M Y'|default:'—' }}</span>{% endif %}</td>
         {% if pipeline %}<td>{{ record.expected_close_date|date:'j M Y'|default:'Not set' }}</td>{% endif %}
     </tr>{% empty %}<tr><td colspan="6"><div class="empty-inline">No records match these filters. {% if current_user_is_submitter %}<a href="{% url 'crm_submit' %}">Submit a ready lead</a> to get started.{% endif %}</div></td></tr>{% endfor %}</tbody>

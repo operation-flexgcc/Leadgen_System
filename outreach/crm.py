@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from .crm_forms import (
     CommentForm,
+    DeadLeadForm,
     HandoffForm,
     LeadUpdateForm,
     OpportunityForm,
@@ -26,6 +27,7 @@ from .models import (
 from .permissions import (
     active_role,
     can_edit_lead,
+    can_submit_lead,
     can_view_crm,
     is_manager,
     is_submission_user,
@@ -117,6 +119,10 @@ def create_handoff(prospect, user, data, historical=False):
         escalated_at=data.get("escalated_at") if historical else timezone.now(),
         next_action=prospect.next_action,
         next_action_date=prospect.next_action_date,
+        next_action_owner=prospect.next_action_owner,
+        approval_status=Escalation.Approval.APPROVED if historical or is_manager(user) else Escalation.Approval.PENDING,
+        approved_by=user if not historical and is_manager(user) else None,
+        approved_at=timezone.now() if not historical and is_manager(user) else None,
     )
     lead.full_clean()
     lead.save()
@@ -128,16 +134,15 @@ def create_handoff(prospect, user, data, historical=False):
 
 @transaction.atomic
 def submit_lead(user, data):
-    if not (is_manager(user) or is_submission_user(user)):
-        raise PermissionDenied(
-            "Use the LinkedIn prospect handoff to escalate an existing prospect."
-        )
+    if not can_submit_lead(user):
+        raise PermissionDenied("This role cannot add leads.")
     form = SubmissionForm(data, user=user)
     if not form.is_valid():
         return form, None
     prospect = form.save(commit=False)
-    prospect.owner = None if is_manager(user) else user
+    prospect.owner = user if active_role(user) in Prospect.Workstream.values else None
     prospect.created_by = user
+    prospect.is_test = form.cleaned_data["is_test"]
     prospect.short_description = form.cleaned_data["context"][:1000]
     key = normalized_company_key(prospect.website)
     if key:
@@ -162,6 +167,67 @@ def submit_lead(user, data):
     prospect.full_clean()
     prospect.save()
     return form, create_handoff(prospect, user, form.cleaned_data)
+
+
+@transaction.atomic
+def approve_lead(user, lead_id, data):
+    if not is_manager(user):
+        raise PermissionDenied("A manager must approve this lead.")
+    lead = get_object_or_404(Escalation.objects.select_for_update(), pk=lead_id)
+    form = DeadLeadForm(data)
+    if not form.is_valid() or not version_matches(form, lead):
+        return form, None
+    if lead.approval_status == Escalation.Approval.APPROVED:
+        return form, lead
+    lead.approval_status = Escalation.Approval.APPROVED
+    lead.approved_by = user
+    lead.approved_at = timezone.now()
+    lead.version += 1
+    lead.save(update_fields=["approval_status", "approved_by", "approved_at", "version", "updated_at"])
+    activity(lead, user, "approved", "Manager approved the lead for CAE follow-up.")
+    return form, lead
+
+
+@transaction.atomic
+def mark_dead(user, lead_id, data):
+    lead = get_object_or_404(Escalation.objects.select_for_update(), pk=lead_id)
+    require_editor(user, lead)
+    if lead.status == Escalation.Status.CONVERTED:
+        raise PermissionDenied("Close the linked sales opportunity instead.")
+    form = DeadLeadForm(data)
+    if not form.is_valid() or not version_matches(form, lead):
+        return form, None
+    before = snapshot(lead, ["status", "drop_reason", "next_action", "next_action_date", "next_action_owner_id"])
+    lead.status = Escalation.Status.DROPPED
+    lead.drop_reason = dict(form.fields["reason"].choices).get(form.cleaned_data["reason"], "") if form.cleaned_data["reason"] else ""
+    lead.next_action = ""
+    lead.next_action_date = None
+    lead.next_action_owner = None
+    lead.version += 1
+    lead.save()
+    activity(lead, user, "marked_dead", lead.drop_reason, before, snapshot(lead, before))
+    return form, lead
+
+
+@transaction.atomic
+def remove_test_lead(user, lead_id, confirmation):
+    """Deliberately limited cleanup: never delete an ordinary customer record."""
+    if not is_system_admin(user):
+        raise PermissionDenied("Only system administrators can remove synthetic samples.")
+    lead = get_object_or_404(Escalation.objects.select_for_update(), pk=lead_id)
+    prospect = Prospect.objects.select_for_update().get(pk=lead.prospect_id)
+    if not prospect.is_test or confirmation != prospect.company_name:
+        raise PermissionDenied("Only a labelled synthetic record with an exact name confirmation may be removed.")
+    # Test samples must not be intermingled with real outreach/imports.
+    if prospect.outreaches.exists() or prospect.import_batch_id:
+        raise PermissionDenied("This sample has outreach or import history; ask an administrator to review it.")
+    company = prospect.company
+    lead.activities.all().delete()
+    Opportunity.objects.filter(escalation=lead).delete()
+    lead.delete()
+    prospect.delete()
+    if not company.prospects.exists():
+        company.delete()
 
 
 @transaction.atomic
@@ -240,6 +306,8 @@ def update_lead(user, lead_id, data):
 def convert_lead(user, lead_id, data):
     lead = get_object_or_404(Escalation.objects.select_for_update(), pk=lead_id)
     require_editor(user, lead)
+    if lead.approval_status != Escalation.Approval.APPROVED:
+        raise PermissionDenied("Approve this lead before moving it to the sales pipeline.")
     existing = Opportunity.objects.filter(escalation=lead).first()
     form = OpportunityForm(data, user=user, lead=lead)
     if existing:

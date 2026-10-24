@@ -103,11 +103,11 @@ class MultipleRoleTests(TestCase):
         self.assertRedirects(self.select("inside_sales"), reverse("dashboard"), fetch_redirect_response=False)
         response = self.client.get(reverse("crm_lead_list"))
         self.assertContains(response, "Switch role")
-        self.assertContains(response, "+ Submit lead")
+        self.assertContains(response, "+ Add lead")
         self.assertEqual(response.context["current_user_role_label"], "Inside sales")
         self.select("account_executive")
         response = self.client.get(reverse("crm_lead_list"))
-        self.assertNotContains(response, "+ Submit lead")
+        self.assertContains(response, "+ Add lead")
         self.assertEqual(response.context["current_user_role_label"], "Client account executive")
 
     def test_active_role_not_union_controls_permissions(self):
@@ -180,6 +180,8 @@ class MultipleRoleTests(TestCase):
         lead.full_clean()
         self.assertFalse(can_edit_lead(self.multi, lead))
         self.multi._active_role = "account_executive"
+        self.assertFalse(can_edit_lead(self.multi, lead))
+        _, lead = crm.approve_lead(self.admin, lead.pk, {"version": lead.version})
         self.assertTrue(can_edit_lead(self.multi, lead))
         form = UserProvisionForm({"full_name": "Multi", "email": self.multi.email, "roles": ["inside_sales"]}, instance=self.multi)
         self.assertFalse(form.is_valid())

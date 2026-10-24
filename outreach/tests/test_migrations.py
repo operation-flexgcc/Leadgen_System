@@ -136,7 +136,10 @@ class ExecutiveCRMMigrationTests(TransactionTestCase):
         executor = MigrationExecutor(connection)
         apps = executor.loader.project_state(executor.loader.graph.leaf_nodes()).apps
         saved = apps.get_model("outreach", "Prospect").objects.get(pk=prospect.pk)
-        self.assertEqual({key: value for key, value in saved.__dict__.items() if key != "_state"}, before)
+        self.assertEqual({key: getattr(saved, key) for key in before}, before)
+        self.assertEqual(saved.lead_source, "")
+        self.assertIsNone(saved.first_contact_date)
+        self.assertFalse(saved.is_test)
         self.assertEqual(apps.get_model("outreach", "Outreach").objects.get(pk=outreach.pk).response, "Client reply")
         self.assertEqual(apps.get_model("outreach", "Escalation").objects.count(), 0)
         self.assertEqual(apps.get_model("outreach", "Opportunity").objects.count(), 0)

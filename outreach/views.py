@@ -10,7 +10,8 @@ from django.core.paginator import Paginator
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.db.models.deletion import ProtectedError
-from django.db.models import Count, F, Q
+from django.db.models import Case, CharField, Count, DateField, F, Q, Value, When
+from django.db.models.functions import Coalesce, Lower
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -205,11 +206,34 @@ def dashboard(request, history=False):
         return redirect("crm_lead_list")
     today = timezone.localdate()
     base_queryset = scoped_prospects(request.user)
+    base_queryset = base_queryset.annotate(
+        salesperson_id=Coalesce("owner_id", "created_by_id"),
+        salesperson_name=Coalesce("owner__first_name", "created_by__first_name"),
+        salesperson_email=Coalesce("owner__email", "created_by__email"),
+        **{
+            "next_owner_" + suffix: Case(
+                When(escalation__opportunity__isnull=False, then=Coalesce("escalation__opportunity__next_action_owner" + field, "escalation__assigned_to" + field)),
+                default=Coalesce("escalation__next_action_owner" + field, "escalation__assigned_to" + field, "next_action_owner" + field, "owner" + field),
+            ) for suffix, field in [("id", "_id"), ("name", "__first_name"), ("email", "__email")]
+        },
+        effective_action=Case(
+            When(Q(escalation__status="dropped") | Q(escalation__approval_status="pending") | Q(escalation__opportunity__stage__in=["won", "lost"]), then=Value("")),
+            When(escalation__opportunity__isnull=False, then=F("escalation__opportunity__next_action")),
+            When(escalation__isnull=False, then=F("escalation__next_action")),
+            default=F("next_action"), output_field=CharField(),
+        ),
+        effective_action_date=Case(
+            When(Q(escalation__status="dropped") | Q(escalation__approval_status="pending") | Q(escalation__opportunity__stage__in=["won", "lost"]), then=Value(None)),
+            When(escalation__opportunity__isnull=False, then=F("escalation__opportunity__next_action_date")),
+            When(escalation__isnull=False, then=F("escalation__next_action_date")),
+            default=F("next_action_date"), output_field=DateField(),
+        ),
+    )
     summary = base_queryset.aggregate(
         total=Count("id"),
         unassigned=Count("id", filter=Q(owner__isnull=True)),
-        actions_today=Count("id", filter=Q(next_action_date=today)),
-        overdue=Count("id", filter=Q(next_action_date__lt=today)),
+        actions_today=Count("id", filter=Q(effective_action_date=today)),
+        overdue=Count("id", filter=Q(effective_action_date__lt=today)),
         meetings_scheduled=Count("id", filter=Q(status=Prospect.Status.MEETING_SCHEDULED)),
     )
     status_counts = {row["status"]: row["total"] for row in base_queryset.values("status").annotate(total=Count("id"))}
@@ -244,17 +268,24 @@ def dashboard(request, history=False):
         if data.get("outreach_count") != "" and data.get("outreach_count") is not None:
             prospects = prospects.filter(outreach_count=int(data["outreach_count"]))
         if data.get("due") == "today":
-            prospects = prospects.filter(next_action_date=today)
+            prospects = prospects.filter(effective_action_date=today)
         elif data.get("due") == "overdue":
-            prospects = prospects.filter(next_action_date__lt=today)
+            prospects = prospects.filter(effective_action_date__lt=today)
         elif data.get("due") == "upcoming":
-            prospects = prospects.filter(next_action_date__gt=today)
+            prospects = prospects.filter(effective_action_date__gt=today)
         elif data.get("due") == "none":
-            prospects = prospects.filter(next_action_date__isnull=True)
+            prospects = prospects.filter(effective_action_date__isnull=True)
         if data.get("owner"):
-            prospects = prospects.filter(owner=data["owner"])
+            prospects = prospects.filter(salesperson_id=data["owner"].pk)
+        if data.get("next_owner"):
+            prospects = prospects.filter(next_owner_id=data["next_owner"].pk)
 
-    prospects = prospects.order_by(F("next_action_date").asc(nulls_last=True), "company_name")
+    prospects = prospects.order_by(F("effective_action_date").asc(nulls_last=True), "company_name")
+    if filter_form.is_valid() and filter_form.cleaned_data.get("sort"):
+        sort = filter_form.cleaned_data["sort"]
+        name = Lower(sort.lstrip("-") + "_name")
+        email = Lower(sort.lstrip("-") + "_email")
+        prospects = prospects.order_by(name.desc(nulls_last=True) if sort.startswith("-") else name.asc(nulls_last=True), email.desc() if sort.startswith("-") else email.asc(), "company_name", "pk")
     paginator = Paginator(prospects, 20)
     page_obj = paginator.get_page(request.GET.get("page"))
     query_params = request.GET.copy()
@@ -291,25 +322,11 @@ def dashboard(request, history=False):
 def prospect_create(request):
     if is_ai_user(request.user):
         raise PermissionDenied("AI user access is read-only.")
-    if is_submission_user(request.user):
-        return redirect("crm_submit")
-    if is_account_executive(request.user):
-        return redirect("crm_lead_list")
-    form = ProspectForm(request.POST or None, user=request.user)
-    if request.method == "POST" and form.is_valid():
-        try:
-            with transaction.atomic():
-                prospect = form.save(commit=False)
-                prospect.created_by = request.user
-                prospect.save()
-                if prospect.founder_escalation_required:
-                    ensure_handoff(prospect, request.user)
-        except ValidationError as error:
-            form.add_error(None, "; ".join(error.messages))
-        else:
-            messages.success(request, f"{prospect.company_name} was added.")
-            return redirect(prospect)
-    return render(request, "outreach/prospect_form.html", {"form": form, "title": "Add prospect"})
+    # Keep old bookmarks, but never offer a second new-record workflow.
+    if request.method == "POST":
+        from .crm_views import submit
+        return submit(request)
+    return redirect("crm_submit")
 
 
 def _get_scoped_import_batch(user, batch_id):

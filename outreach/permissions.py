@@ -35,7 +35,11 @@ def can_view_crm(user):
 
 
 def can_edit_lead(user, lead):
-    return is_manager(user) or (is_account_executive(user) and lead.assigned_to_id == user.pk)
+    return is_manager(user) or (is_account_executive(user) and lead.assigned_to_id == user.pk and lead.approval_status == "approved")
+
+
+def can_submit_lead(user):
+    return active_role(user) in {role for role in Profile.Role.values if role != Profile.Role.AI_USER}
 
 
 def is_submission_user(user):

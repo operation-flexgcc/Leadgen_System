@@ -114,6 +114,15 @@ class CompanyIdentity(models.Model):
 
 
 class Prospect(models.Model):
+    class LeadSource(models.TextChoices):
+        PERSONAL = "personal_contact", "Personal contact"
+        LINKEDIN = "linkedin", "LinkedIn"
+        INBOUND = "inbound", "Inbound"
+        REFERRAL = "referral", "Referral"
+        OUTBOUND = "outbound", "Outbound"
+        EVENT = "event", "Event / networking"
+        OTHER = "other", "Other"
+
     class Workstream(models.TextChoices):
         INTERN = Profile.Role.INTERN, "Sales intern"
         INSIDE_SALES = Profile.Role.INSIDE_SALES, "Inside sales"
@@ -180,6 +189,9 @@ class Prospect(models.Model):
         db_index=True,
     )
     company_name = models.CharField(max_length=200, db_index=True)
+    lead_source = models.CharField(max_length=30, choices=LeadSource.choices, blank=True)
+    first_contact_date = models.DateField(null=True, blank=True)
+    is_test = models.BooleanField(default=False, editable=False)
     website = models.URLField(max_length=500, blank=True)
     short_description = models.TextField(max_length=1000, blank=True)
     location = models.CharField(max_length=200, blank=True)
@@ -207,6 +219,10 @@ class Prospect(models.Model):
     questions_for_founders = models.TextField(blank=True)
     next_action = models.CharField(max_length=250, blank=True)
     next_action_date = models.DateField(null=True, blank=True, db_index=True)
+    next_action_owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="prospect_next_actions",
+    )
     status = models.CharField(
         max_length=40,
         choices=Status.choices,

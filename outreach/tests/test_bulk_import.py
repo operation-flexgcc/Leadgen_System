@@ -110,8 +110,7 @@ class BulkProspectImportTests(BulkImportTestMixin, TestCase):
         dashboard = self.client.get(reverse("dashboard"))
 
         self.assertEqual(protected.status_code, 302)
-        self.assertContains(add_page, reverse("prospect_bulk_import"))
-        self.assertContains(add_page, "Bulk ingest a CSV")
+        self.assertRedirects(add_page, reverse("crm_submit"))
         self.assertContains(dashboard, "Import CSV")
 
     def test_frontline_import_adds_valid_rows_and_lists_every_ignored_row(self):

@@ -15,7 +15,7 @@ from django.views.decorators.csrf import csrf_exempt
 from . import crm
 from .api import _json_error, _read_json_object, api_token_required
 from .crm_forms import HandoffForm, LeadUpdateForm, OpportunityForm, SubmissionForm
-from .crm_views import filtered_records
+from .crm_views import filtered_records, ordered_records
 from .models import Opportunity, Prospect
 from .permissions import active_role, can_edit_lead, can_view_crm, is_manager
 
@@ -53,7 +53,9 @@ def payload(request, allowed):
         if key == "response_confirmed":
             if not isinstance(value, bool):
                 raise ValueError("response_confirmed must be a JSON boolean.")
-        elif key in {"assigned_to", "version", "probability"}:
+        elif key in {"assigned_to", "version", "probability", "next_action_owner"}:
+            if key == "next_action_owner" and value is None:
+                continue
             if type(value) is not int:
                 raise ValueError(f"{key} must be a JSON integer.")
         elif key == "estimated_value":
@@ -97,6 +99,8 @@ def lead_data(lead, user):
         "source_channel",
         "escalated_at",
         "historical",
+        "approval_status",
+        "approved_at",
         "context",
         "status",
         "next_action",
@@ -113,6 +117,8 @@ def lead_data(lead, user):
     data.update(
         {
             "assigned_to": person(lead.assigned_to),
+            "approved_by": person(lead.approved_by),
+            "next_action_owner": person(lead.next_action_owner),
             "escalated_by": person(lead.escalated_by),
             "can_edit": can_edit_lead(user, lead),
             "prospect": {
@@ -129,6 +135,9 @@ def lead_data(lead, user):
                     "contact_phone",
                     "contact_linkedin_url",
                     "owner_id",
+                    "lead_source",
+                    "first_contact_date",
+                    "is_test",
                 ]
             },
             "opportunity_id": getattr(getattr(lead, "opportunity", None), "pk", None),
@@ -147,7 +156,7 @@ def opportunity_data(record, user):
         "updated_at",
     ]
     return {
-        **{field: getattr(record, field) for field in fields},
+        **{field: getattr(record, field + "_id" if field == "next_action_owner" else field) for field in fields},
         "lead": lead_data(record.escalation, user),
     }
 
@@ -156,7 +165,7 @@ def listing(request, rows, serialize, pipeline=False):
     form, rows = filtered_records(rows, request.GET, pipeline=pipeline)
     if form.is_bound and not form.is_valid():
         return form_error(form)
-    page = Paginator(rows.order_by("-pk"), 25).get_page(request.GET.get("page"))
+    page = Paginator(ordered_records(rows, form), 25).get_page(request.GET.get("page"))
     return JsonResponse(
         {
             "count": page.paginator.count,
@@ -176,7 +185,9 @@ def leads(request):
             lead_data,
         )
     data = payload(request, [*SubmissionForm.Meta.fields, "assigned_to", "context"])
-    if not is_manager(request.api_user) and data.get("workstream") not in {
+    if data.get("workstream") is not None and data["workstream"] not in Prospect.Workstream.values:
+        raise ValueError("Choose a valid legacy workstream.")
+    if active_role(request.api_user) in Prospect.Workstream.values and data.get("workstream") not in {
         None,
         active_role(request.api_user),
     }:

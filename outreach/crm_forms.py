@@ -62,6 +62,7 @@ class LegacyRoutingForm(StyledForm, forms.Form):
 
 
 class SubmissionForm(StyledForm, forms.ModelForm):
+    is_test = forms.BooleanField(required=False, label="Synthetic test record", help_text="For verification only. A system admin can permanently remove this sample and its CRM history. Never use for real business data.")
     assigned_to = ExecutiveChoice(
         queryset=get_user_model().objects.none(), label="Account executive"
     )
@@ -75,13 +76,15 @@ class SubmissionForm(StyledForm, forms.ModelForm):
         model = Prospect
         labels = {
             "contact_linkedin_url": "LinkedIn profile",
-            "workstream": "Source channel",
+            "lead_source": "Lead source",
         }
         help_texts = {
             "contact_email": "Provide at least one contact method: email, phone or LinkedIn."
         }
         fields = [
             "workstream",
+            "lead_source",
+            "first_contact_date",
             "company_name",
             "website",
             "location",
@@ -91,21 +94,21 @@ class SubmissionForm(StyledForm, forms.ModelForm):
             "contact_phone",
             "contact_linkedin_url",
         ]
+        widgets = {"first_contact_date": DateInput()}
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
         self.user = user
         self.fields["assigned_to"].queryset = executives()
         self.fields["contact_name"].required = True
-        self.fields["workstream"].choices = [
-            (v, l)
-            for v, l in Prospect.Workstream.choices
-            if v != Prospect.Workstream.LINKEDIN_OUTREACH
-        ]
-        if not is_manager(user):
-            self.fields["workstream"].disabled = True
-            self.initial["workstream"] = active_role(user)
-            self.fields["workstream"].widget = forms.HiddenInput()
+        # Legacy channel remains an internal routing field, not the lead's origin.
+        self.fields["workstream"].disabled = True
+        self.initial["workstream"] = active_role(user) if active_role(user) in Prospect.Workstream.values else Prospect.Workstream.INSIDE_SALES
+        if is_manager(user) and self.is_bound and self.data.get("workstream") in Prospect.Workstream.values:
+            # Older API clients explicitly specify a legacy routing channel.
+            self.initial["workstream"] = self.data["workstream"]
+        self.fields["workstream"].widget = forms.HiddenInput()
+        self.fields["first_contact_date"].help_text = "Actual or planned first contact, independent of when the lead is entered. Leave blank if unknown."
         self.style()
 
     def clean(self):
@@ -179,6 +182,7 @@ class LeadUpdateForm(StyledForm, forms.ModelForm):
             "status",
             "next_action",
             "next_action_date",
+            "next_action_owner",
             "discovery_at",
             "discovery_timezone",
             "discovery_outcome",
@@ -215,6 +219,7 @@ class LeadUpdateForm(StyledForm, forms.ModelForm):
             for v, l in Escalation.Status.choices
             if v != Escalation.Status.CONVERTED
         ]
+        self.fields["next_action_owner"] = ExecutiveChoice(queryset=action_owners(), required=False, label="Next-step owner", help_text="Leave blank to use the assigned CAE.")
         if is_manager(user):
             self.fields["assigned_to"] = ExecutiveChoice(
                 queryset=executives(),
@@ -258,6 +263,26 @@ class LeadUpdateForm(StyledForm, forms.ModelForm):
         return data
 
 
+def action_owners():
+    return get_user_model().objects.filter(is_active=True).filter(
+        role_membership_query([role for role in Profile.Role.values if role != Profile.Role.AI_USER])
+    ).distinct().order_by("first_name", "last_name", "email")
+
+
+class DeadLeadForm(StyledForm, forms.Form):
+    version = forms.IntegerField(widget=forms.HiddenInput())
+    reason = forms.ChoiceField(required=False, choices=[
+        ("", "No reason specified"), ("not_interested", "Not interested"),
+        ("not_a_fit", "Not a fit"), ("no_budget", "No budget"),
+        ("no_response", "No response"), ("timing", "Timing"),
+        ("competitor", "Chose another provider"), ("other", "Other"),
+    ], label="Reason (optional)")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.style()
+
+
 class OpportunityForm(StyledForm, forms.ModelForm):
     version = forms.IntegerField(required=False, widget=forms.HiddenInput())
     assigned_to = ExecutiveChoice(
@@ -287,6 +312,7 @@ class OpportunityForm(StyledForm, forms.ModelForm):
             "expected_close_date",
             "next_action",
             "next_action_date",
+            "next_action_owner",
             "closure_reason",
         ]
         widgets = {
@@ -303,6 +329,7 @@ class OpportunityForm(StyledForm, forms.ModelForm):
 
     def __init__(self, *args, user, lead, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["next_action_owner"] = ExecutiveChoice(queryset=action_owners(), required=False, label="Next-step owner", help_text="Leave blank to use the assigned CAE.")
         if self.instance.pk:
             self.fields.pop("decision_note")
             self.initial["version"] = self.instance.version
@@ -338,6 +365,11 @@ class CommentForm(StyledForm, forms.Form):
 
 
 class CRMFilterForm(forms.Form):
+    salesperson = ExecutiveChoice(queryset=get_user_model().objects.none(), required=False, label="Salesperson", empty_label="All salespeople")
+    next_owner = ExecutiveChoice(queryset=get_user_model().objects.none(), required=False, label="Next-step owner", empty_label="All next-step owners")
+    lead_source = forms.ChoiceField(required=False, choices=[("", "All lead sources"), *Prospect.LeadSource.choices])
+    approval_status = forms.ChoiceField(required=False, choices=[("", "All approvals"), *Escalation.Approval.choices], label="Approval")
+    sort = forms.ChoiceField(required=False, choices=[("", "Next action date"), ("salesperson", "Salesperson A–Z"), ("-salesperson", "Salesperson Z–A"), ("next_owner", "Next-step owner A–Z"), ("-next_owner", "Next-step owner Z–A")], label="Sort by")
     search = forms.CharField(required=False, label="Company, contact or opportunity")
     assigned_to = ExecutiveChoice(
         queryset=get_user_model().objects.none(),
@@ -348,7 +380,7 @@ class CRMFilterForm(forms.Form):
     source_channel = forms.ChoiceField(
         required=False,
         choices=[("", "All channels"), *Prospect.Workstream.choices],
-        label="Source channel",
+        label="Legacy outreach channel",
     )
     status = forms.ChoiceField(required=False)
     due = forms.ChoiceField(
@@ -376,6 +408,8 @@ class CRMFilterForm(forms.Form):
 
     def __init__(self, *args, pipeline=False, **kwargs):
         super().__init__(*args, **kwargs)
+        for name in ["salesperson", "next_owner"]:
+            self.fields[name].queryset = get_user_model().objects.order_by("first_name", "email")
         self.fields["assigned_to"].queryset = (
             get_user_model()
             .objects.filter(role_membership_query([Profile.Role.ACCOUNT_EXECUTIVE])).distinct()

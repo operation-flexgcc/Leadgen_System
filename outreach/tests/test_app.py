@@ -305,18 +305,20 @@ class MultiRoleWorkflowTests(AppTestMixin, TestCase):
                 contact_email="partner@inside-sales-advisory.example.com",
             ),
         )
-        self.assertRedirects(response, reverse("crm_submit"))
+        self.assertContains(response, "Add lead")
+        self.assertIn("assigned_to", response.context["form"].errors)
         self.assertFalse(Prospect.objects.filter(company_name="Inside Sales Advisory").exists())
 
     def test_prospect_flags_have_distinct_form_sections_and_are_saved(self):
         self.client.force_login(self.manager)
-        form_response = self.client.get(reverse("prospect_create"))
+        prospect = self.make_prospect(self.intern, "Flagged Advisory", website="https://flagged-advisory.example.com")
+        form_response = self.client.get(reverse("prospect_update", args=[prospect.pk]))
         self.assertContains(form_response, "<h2>Eligibility</h2>", html=True)
         self.assertContains(form_response, "Is not eligible")
         self.assertContains(form_response, "<h2>Prospect sent</h2>", html=True)
 
         response = self.client.post(
-            reverse("prospect_create"),
+            reverse("prospect_update", args=[prospect.pk]),
             self.prospect_form_data(
                 company_name="Flagged Advisory",
                 website="https://flagged-advisory.example.com",

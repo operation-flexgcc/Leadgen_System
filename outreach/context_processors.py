@@ -5,6 +5,7 @@ from .permissions import (
     can_view_all_outreach,
     can_view_crm,
     can_view_user_access,
+    can_submit_lead,
     is_account_executive,
     is_ai_user,
     is_manager,
@@ -21,6 +22,7 @@ def current_role(request):
         except Exception:
             role_label = "User"
     return {
+        "current_user_can_submit_lead": can_submit_lead(request.user),
         "current_user_is_manager": is_manager(request.user),
         "current_user_is_system_admin": is_system_admin(request.user),
         "current_user_is_ai_user": is_ai_user(request.user),

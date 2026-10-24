@@ -61,6 +61,9 @@ class ProspectForm(forms.ModelForm):
             "questions_for_founders",
             "next_action",
             "next_action_date",
+            "next_action_owner",
+            "lead_source",
+            "first_contact_date",
             "status",
             "meeting_scheduled_at",
             "meeting_timezone",
@@ -75,6 +78,7 @@ class ProspectForm(forms.ModelForm):
             "interest_signal": forms.Textarea(attrs={"rows": 3}),
             "questions_for_founders": forms.Textarea(attrs={"rows": 3}),
             "next_action_date": DateInput(),
+            "first_contact_date": DateInput(),
             "meeting_scheduled_at": DateTimeLocalInput(format="%Y-%m-%dT%H:%M"),
             "comments": forms.Textarea(attrs={"rows": 4}),
         }
@@ -111,7 +115,6 @@ class ProspectForm(forms.ModelForm):
         self.workstream_value = selected_workstream
         simplified_handoff = (
             bool(self.instance.pk)
-            and selected_workstream != Prospect.Workstream.LINKEDIN_OUTREACH
             and hasattr(self.instance, "escalation")
         )
         self.fields["website"].required = not simplified_handoff
@@ -127,7 +130,7 @@ class ProspectForm(forms.ModelForm):
         ]:
             self.fields[field_name].required = not simplified_handoff or field_name == "contact_name"
 
-        if selected_workstream == Prospect.Workstream.LINKEDIN_OUTREACH:
+        if selected_workstream == Prospect.Workstream.LINKEDIN_OUTREACH and not simplified_handoff:
             for field_name in [
                 "contact_linkedin_url",
                 "founder_account",
@@ -153,6 +156,11 @@ class ProspectForm(forms.ModelForm):
             self.fields["workstream"].widget = forms.HiddenInput()
             self.fields["workstream"].initial = active_role(user)
 
+        self.fields["next_action_owner"].queryset = get_user_model().objects.filter(
+            role_membership_query([role for role in Profile.Role.values if role != Profile.Role.AI_USER]), is_active=True,
+        ).distinct().order_by("first_name", "email")
+        self.fields["next_action_owner"].label = "Next-step owner"
+        self.fields["next_action_owner"].label_from_instance = lambda person: person.get_full_name() or person.email
         for name, field in self.fields.items():
             field.widget.attrs.setdefault("class", "form-control")
             if field.required:
@@ -453,6 +461,8 @@ class OutreachForm(forms.ModelForm):
 
 
 class DashboardFilterForm(forms.Form):
+    sort = forms.ChoiceField(required=False, choices=[("", "Next action date"), ("salesperson", "Salesperson A–Z"), ("-salesperson", "Salesperson Z–A"), ("next_owner", "Next-step owner A–Z"), ("-next_owner", "Next-step owner Z–A")], label="Sort by")
+    next_owner = forms.ModelChoiceField(queryset=get_user_model().objects.none(), required=False, label="Next-step owner", empty_label="All next-step owners")
     DUE_CHOICES = [
         ("", "All action dates"),
         ("today", "Actions for today"),
@@ -493,10 +503,12 @@ class DashboardFilterForm(forms.Form):
 
     def __init__(self, *args, user, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["next_owner"].queryset = get_user_model().objects.order_by("first_name", "email")
+        self.fields["next_owner"].label_from_instance = lambda person: person.get_full_name() or person.email
         if can_view_all_outreach(user):
             self.fields["owner"].queryset = (
                 get_user_model()
-                .objects.filter(role_membership_query(Prospect.Workstream.values), is_active=True)
+                .objects.all()
                 .select_related("profile")
                 .prefetch_related("profile__additional_roles").distinct()
                 .order_by("profile__role", "first_name", "email")
@@ -504,6 +516,7 @@ class DashboardFilterForm(forms.Form):
             self.fields["owner"].label_from_instance = lambda operator: (
                 f"{operator.get_full_name() or operator.email} - {operator.profile.roles_display}"
             )
+            self.fields["owner"].label = "Salesperson"
         else:
             self.fields.pop("owner")
             self.fields.pop("workstream")

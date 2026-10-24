@@ -10,12 +10,16 @@ from django.urls import reverse
 
 
 class Escalation(models.Model):
+    class Approval(models.TextChoices):
+        PENDING = "pending", "Pending manager approval"
+        APPROVED = "approved", "Approved"
+
     class Status(models.TextChoices):
         NEW = "new", "New"
         FOLLOWING_UP = "following_up", "Following up"
         DISCOVERY_SCHEDULED = "discovery_scheduled", "Discovery scheduled"
         DISCOVERY_COMPLETED = "discovery_completed", "Discovery completed"
-        DROPPED = "dropped", "Dropped"
+        DROPPED = "dropped", "Dead"
         CONVERTED = "converted", "Moved to sales pipeline"
 
     prospect = models.OneToOneField(
@@ -37,12 +41,17 @@ class Escalation(models.Model):
     # Unknown dates on reviewed historical records must not become invented dates.
     escalated_at = models.DateTimeField(null=True, blank=True)
     historical = models.BooleanField(default=False, editable=False)
+    # Existing / historical handoffs remain approved; new submissions set this explicitly.
+    approval_status = models.CharField(max_length=20, choices=Approval.choices, default=Approval.APPROVED, db_index=True)
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="approved_leads")
+    approved_at = models.DateTimeField(null=True, blank=True)
     context = models.TextField(max_length=5000)
     status = models.CharField(
         max_length=30, choices=Status.choices, default=Status.NEW, db_index=True
     )
     next_action = models.CharField(max_length=250, blank=True)
     next_action_date = models.DateField(null=True, blank=True, db_index=True)
+    next_action_owner = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="lead_next_actions")
     discovery_at = models.DateTimeField(null=True, blank=True)
     discovery_timezone = models.CharField(max_length=80, blank=True)
     discovery_outcome = models.TextField(max_length=3000, blank=True)
@@ -79,8 +88,6 @@ class Escalation(models.Model):
             and not self.discovery_outcome.strip()
         ):
             errors["discovery_outcome"] = "Record the discovery outcome."
-        if self.status == self.Status.DROPPED and not self.drop_reason.strip():
-            errors["drop_reason"] = "Record why the lead was dropped."
         if errors:
             raise ValidationError(errors)
 
@@ -138,6 +145,7 @@ class Opportunity(models.Model):
     expected_close_date = models.DateField(null=True, blank=True, db_index=True)
     next_action = models.CharField(max_length=250, blank=True)
     next_action_date = models.DateField(null=True, blank=True, db_index=True)
+    next_action_owner = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="opportunity_next_actions")
     closure_reason = models.TextField(max_length=2000, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True, editable=False)
     version = models.PositiveIntegerField(default=1)
