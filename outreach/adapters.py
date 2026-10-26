@@ -1,4 +1,6 @@
 from allauth.core.exceptions import ImmediateHttpResponse
+from allauth.account.adapter import DefaultAccountAdapter
+from allauth.account.models import EmailAddress
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -7,7 +9,20 @@ from django.shortcuts import render
 from .models import Profile
 
 
+class FlexGCCAccountAdapter(DefaultAccountAdapter):
+    def is_open_for_signup(self, request):
+        # Password login is for admin-provisioned accounts, never public signup.
+        return False
+
+
 class FlexGCCSocialAccountAdapter(DefaultSocialAccountAdapter):
+    def is_open_for_signup(self, request, sociallogin):
+        email = (sociallogin.user.email or "").strip().lower()
+        # Preserve approved Google bootstrap. pre_social_login still enforces
+        # disabled accounts, preprovisioning and the configured domain policy.
+        return (not settings.REQUIRE_PREPROVISIONED_USERS
+                or email in settings.SYSTEM_ADMIN_EMAILS or email in settings.MANAGER_EMAILS)
+
     def pre_social_login(self, request, sociallogin):
         super().pre_social_login(request, sociallogin)
         email = (sociallogin.user.email or sociallogin.account.extra_data.get("email", "")).strip().lower()
@@ -50,6 +65,18 @@ class FlexGCCSocialAccountAdapter(DefaultSocialAccountAdapter):
                         status=403,
                     )
                 )
+        if (
+            existing_user and sociallogin.is_existing
+            and sociallogin.user.pk == existing_user.pk
+            and sociallogin.account.provider == "google"
+            and existing_user.profile.password_provisioned_by_admin
+            and any(address.verified and address.email.lower() == email for address in sociallogin.email_addresses)
+        ):
+            # Google has now verified ownership of the exact admin-approved
+            # identity. Preserve its deliberately provisioned local password
+            # when allauth connects Google; never trust an unverified assertion
+            # or bypass allauth's password wipe for unprovisioned accounts.
+            EmailAddress.objects.filter(user=existing_user, email__iexact=email).update(verified=True)
         if existing_user and email in settings.SYSTEM_ADMIN_EMAILS:
             profile, _ = Profile.objects.get_or_create(user=existing_user)
             profile.set_roles([*profile.assigned_roles, Profile.Role.SYSTEM_ADMIN])

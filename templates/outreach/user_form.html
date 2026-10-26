@@ -5,7 +5,7 @@
     <a class="back-link" href="{% url 'user_list' %}">← User access</a>
     <p class="eyebrow">System administration</p>
     <h1>{{ title }}</h1>
-    <p>{% if target_user %}Update this person’s identity or assigned roles.{% else %}The user will sign in with the exact Google email entered here.{% endif %}</p>
+    <p>Each person has their own account. Their email is their login username. Set a password for non-Google users; Google sign-in also works with the same approved email.</p>
 </section>
 
 <form method="post" class="record-form compact-form" novalidate>
@@ -15,6 +15,8 @@
         <div class="form-grid user-form-grid">
             <div class="field field-full">{% include "outreach/field.html" with field=form.full_name %}</div>
             <div class="field field-full">{% include "outreach/field.html" with field=form.email %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.password1 %}</div>
+            <div class="field field-full">{% include "outreach/field.html" with field=form.password2 %}</div>
             <fieldset class="field field-full user-role-options">
                 <legend>{{ form.roles.label }} <span class="required">*</span></legend>
                 {{ form.roles }}

@@ -37,6 +37,7 @@
                     <small>{{ current_user_role_label }}</small>
                 </span>
                 {% if current_user_has_multiple_roles and current_user_has_active_role %}<a class="switch-role-link" href="{% url 'choose_role' %}">Switch role</a>{% endif %}
+                <a class="switch-role-link" href="{% url 'account_change_password' %}">Password</a>
                 <form method="post" action="{% url 'account_logout' %}">
                     {% csrf_token %}
                     <button class="text-button" type="submit">Sign out</button>

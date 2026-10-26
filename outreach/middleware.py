@@ -35,6 +35,8 @@ class ActiveRoleMiddleware:
             read_only_exempt = route_name in {
                 "choose_role",
                 "account_logout",
+                "account_change_password",
+                "account_set_password",
                 "api_access",
                 "api_access_token_revoke",
             }

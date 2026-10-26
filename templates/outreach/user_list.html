@@ -5,7 +5,7 @@
     <div>
         <p class="eyebrow">System administration</p>
         <h1>User access</h1>
-        <p>{% if current_user_is_read_only %}Review approved accounts and their assigned roles. This account cannot change user access.{% else %}Add people before their first Google sign-in and assign one or more roles to each account.{% endif %}</p>
+        <p>{% if current_user_is_read_only %}Review approved accounts and their assigned roles. This account cannot change user access.{% else %}Add each person before their first sign-in. Assign roles and optionally set a password for email login; Google sign-in remains available.{% endif %}</p>
     </div>
     <div class="heading-actions">
         <a class="button-secondary" href="{% url 'company_export' 'csv' %}">Download companies CSV</a>

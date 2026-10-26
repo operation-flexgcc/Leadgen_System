@@ -23,6 +23,7 @@ class Profile(models.Model):
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.INTERN, db_index=True)
+    password_provisioned_by_admin = models.BooleanField(default=False, editable=False)
 
     def __str__(self):
         return f"{self.user.get_full_name() or self.user.email or self.user.username} ({self.get_role_display()})"

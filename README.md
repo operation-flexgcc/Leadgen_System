@@ -32,7 +32,7 @@ The canonical source and production release repository is [operation-flexgcc/Lea
 - Role-scoped company downloads in CSV and formatted XLSX with `ID`, `Name`, `Location`, and `URL` columns.
 - Rotating API credentials, audited company-detail updates, and atomic prospect claiming by company ID.
 - Auditable bulk prospect ingestion from three-column CSV files, with row-level validation, duplicate reporting, recent-batch history, and safe batch rollback.
-- Google OAuth login with exact-email pre-provisioning and optional Google-domain restriction.
+- Email-and-password or Google OAuth login for individually preprovisioned accounts; optional Google-domain restriction.
 - Seven extensible user classes:
 
 | Class | Access |
@@ -224,8 +224,12 @@ The current native EC2 deployment for `leadgen.flexgcc.com` is documented in [`d
 
 ## User operations
 
-- A system admin adds a name, exact Google email, and user class at `/system/users/`.
-- A system admin can change a user's name, email, or class.
+- A system admin adds each person's name, email (their login username), and roles at `/system/users/`. Multiple people can hold the same role; they remain separate accounts.
+- To enable password login, fill **New password** and **Confirm new password** when adding/editing a user. Use a unique strong password and share it privately, never in source control or chat. Blank fields retain the existing password; a new user with blank fields is Google-only.
+- Users can sign in at `/login/` with email/password or Google for the same email. Non-Google addresses work with password login. Existing Google accounts and roles are unchanged. Public signup is closed; password login does not create accounts.
+- Users can change their own password with the **Password** link after login. Forgotten passwords are reset by a system admin in **Users → Edit**; this does not depend on SMTP being configured. Passwords are validated and stored using Django password hashing. Resetting a password invalidates older browser sessions on their next request.
+- Changing an email removes the old Google link and password; supply a new password at the same time or use Google at the new approved email. Normal role/name edits preserve passwords and previously verified email status.
+- Interns and inside-sales users see their own handoffs and owned outreach records, not their peers' assigned records. Legacy **unassigned** prospects are a shared claimable queue within a role; claiming a prospect removes it from peers' queues. Managers/admins retain wider access; CAEs and read-only AI retain their existing CRM visibility. Browser, export and API access is checked server-side. Company API reads/updates for frontline users are limited to their owned records in the active role, even when another channel has the same company identity.
 - System admins cannot remove their own admin role or delete themselves.
 - The last active system admin cannot be downgraded or deleted.
 - `python manage.py set_user_role EMAIL ROLE [ROLE ...]` sets one or more roles for an existing account. Valid values: `intern`, `inside_sales`, `linkedin_outreach`, `account_executive`, `manager`, `system_admin`, `ai_user`. Prefer **Users** for routine changes; this command is for emergency server-side recovery.

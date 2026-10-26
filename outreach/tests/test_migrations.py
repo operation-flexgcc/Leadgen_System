@@ -3,6 +3,30 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
 
+class PasswordProvisionMigrationTests(TransactionTestCase):
+    def test_existing_accounts_keep_roles_and_passwords_without_trusting_old_passwords(self):
+        executor = MigrationExecutor(connection)
+        try:
+            old = ("outreach", "0016_lead_intake_approval_and_ownership")
+            new = ("outreach", "0017_profile_password_provisioned_by_admin")
+            executor.migrate([old])
+            apps = executor.loader.project_state([old]).apps
+            user = apps.get_model("auth", "User").objects.create(
+                username="existing", email="existing@example.com", password="!existing-unusable-password",
+            )
+            apps.get_model("outreach", "Profile").objects.create(user_id=user.pk, role="inside_sales")
+            executor = MigrationExecutor(connection)
+            executor.migrate([new])
+            apps = executor.loader.project_state([new]).apps
+            profile = apps.get_model("outreach", "Profile").objects.get(user_id=user.pk)
+            self.assertFalse(profile.password_provisioned_by_admin)
+            self.assertEqual(profile.role, "inside_sales")
+            self.assertEqual(apps.get_model("auth", "User").objects.get(pk=user.pk).password, "!existing-unusable-password")
+        finally:
+            executor = MigrationExecutor(connection)
+            executor.migrate(executor.loader.graph.leaf_nodes())
+
+
 class CompanyIdentityMigrationTests(TransactionTestCase):
     migrate_from = ("outreach", "0003_prospect_import_key_prospect_import_source_and_more")
     migrate_to = ("outreach", "0004_company_identity_and_api_tokens")

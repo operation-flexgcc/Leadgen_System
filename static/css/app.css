@@ -360,6 +360,10 @@ textarea.form-control { resize: vertical; }
 .google-button:hover { border-color: #95a69e; background: #fbfcfb; }
 .google-g { color: #4285f4; font-size: 1.2rem; font-weight: 900; }
 .login-note { margin: 14px 0 0; color: var(--muted); font-size: .73rem; text-align: center; }
+.login-divider { margin: 20px 0; color: var(--muted); text-align: center; }
+.password-form .field { margin-bottom: 18px; }
+.password-form input:not([type="hidden"]) { width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid #ccd6d1; border-radius: 8px; background: white; }
+.password-form input:focus { outline: 2px solid var(--green); outline-offset: 2px; }
 
 .header-inner { height: auto; min-height: 72px; gap: 24px; flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
 .primary-nav { flex-wrap: wrap; gap: 16px; }

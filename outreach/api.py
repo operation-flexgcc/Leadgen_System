@@ -452,9 +452,8 @@ def company_detail(request, company_id):
         )
         if not records:
             return _json_error("Company ID was not found.", 404)
-        if not is_manager(request.api_user) and not any(
-            _api_user_can_access_prospect(request.api_user, record) for record in records
-        ):
+        records = [record for record in records if _api_user_can_access_prospect(request.api_user, record)]
+        if not records:
             return _json_error("Claim this prospect before viewing its company details via API.", 403)
         return JsonResponse({"company": _company_details(records)})
 
@@ -478,9 +477,10 @@ def company_detail(request, company_id):
             .filter(company=company)
             .order_by("-updated_at", "pk")
         )
-        if not is_manager(request.api_user) and not any(
-            _api_user_can_access_prospect(request.api_user, record) for record in records
-        ):
+        # Owning one company's prospect must not grant access to another
+        # person's/channel's research or allow changes to those records.
+        records = [record for record in records if _api_user_can_access_prospect(request.api_user, record)]
+        if not records:
             return _json_error("Claim this prospect before modifying its company details.", 403)
 
         previous_values = {}
@@ -516,7 +516,7 @@ def company_detail(request, company_id):
             changed_values=cleaned_changes,
         )
 
-    refreshed_records = Prospect.objects.filter(company_id=company_id).order_by("-updated_at", "pk")
+    refreshed_records = Prospect.objects.filter(pk__in=[record.pk for record in records]).order_by("-updated_at", "pk")
     return JsonResponse(
         {
             "message": "Company details updated.",

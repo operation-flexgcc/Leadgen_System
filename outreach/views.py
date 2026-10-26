@@ -18,6 +18,8 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.debug import sensitive_post_parameters
+from allauth.account.views import LoginView
 
 from .bulk_import import (
     BulkImportFileError,
@@ -63,10 +65,8 @@ REQUIRED_HEALTH_TABLES = {
 }
 
 
-def login_landing(request):
-    if request.user.is_authenticated:
-        return redirect("dashboard")
-    return render(request, "account/login.html")
+# Share allauth validation, rate limits, safe redirects and multi-role login signals.
+login_landing = LoginView.as_view()
 
 
 @login_required
@@ -632,6 +632,7 @@ def user_list(request):
 
 
 @login_required
+@sensitive_post_parameters("password1", "password2")
 @require_http_methods(["GET", "POST"])
 def user_create(request):
     require_system_admin(request.user)
@@ -644,6 +645,7 @@ def user_create(request):
 
 
 @login_required
+@sensitive_post_parameters("password1", "password2")
 @require_http_methods(["GET", "POST"])
 def user_update(request, pk):
     require_system_admin(request.user)

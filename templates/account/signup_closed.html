@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Registration closed · FlexGCC Outreach{% endblock %}
+{% block main_class %}login-shell{% endblock %}
+{% block content %}
+<section class="login-card"><h1>Registration is closed</h1>
+<p>A system administrator must add your account and assign your roles before you sign in.</p>
+<a class="button" href="{% url 'login' %}">Back to sign in</a></section>
+{% endblock %}

@@ -10,19 +10,33 @@
             <h1>Outreach</h1>
         </div>
     </div>
-    <p class="login-intro">Keep prospect follow-ups clear, current, and visible to the whole sales team.</p>
-    <div class="login-points" aria-label="Application features">
-        <span>Track up to five outreaches</span>
-        <span>See today’s actions</span>
-        <span>Manage meeting progress</span>
-    </div>
+    <p class="login-intro">Sign in with your approved email and password, or use Google.</p>
+    <form method="post" action="{% url 'account_login' %}" class="password-form">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="form-alert" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="field">
+            <label for="{{ form.login.id_for_label }}">Email (your username)</label>
+            {{ form.login }}
+            {% for error in form.login.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+        </div>
+        <div class="field">
+            <label for="{{ form.password.id_for_label }}">Password</label>
+            {{ form.password }}
+            {% for error in form.password.errors %}<small class="field-error">{{ error }}</small>{% endfor %}
+        </div>
+        {% if redirect_field_value %}<input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">{% endif %}
+        <button class="button button-block" type="submit">Sign in with password</button>
+    </form>
+    <p class="login-note">Need a password or forgot it? Contact your system administrator. Public registration is not available.</p>
+    <p class="login-divider">or</p>
     <form method="post" action="/accounts/google/login/">
         {% csrf_token %}
+        {% if redirect_field_value %}<input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">{% endif %}
         <button class="google-button" type="submit">
             <span class="google-g" aria-hidden="true">G</span>
             Continue with Google
         </button>
     </form>
-    <p class="login-note">Use the Google account approved by your FlexGCC manager.</p>
+    <p class="login-note">Both options access the same approved account and assigned roles. Google Workspace is not required for password login.</p>
 </section>
 {% endblock %}

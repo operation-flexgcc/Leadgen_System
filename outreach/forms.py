@@ -2,6 +2,7 @@ from urllib.parse import urlsplit
 
 from django import forms
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password, password_validators_help_text_html
 from allauth.account.models import EmailAddress
 from django.db.models import Q
 from django.db import transaction
@@ -531,6 +532,16 @@ class UserProvisionForm(forms.Form):
         choices=Profile.Role.choices, label="User roles", widget=forms.CheckboxSelectMultiple,
         help_text="Select one or more roles. People with multiple roles choose which role to use after signing in.",
     )
+    password1 = forms.CharField(
+        label="New password (optional)", required=False, strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+        help_text="Set a password to enable email login. Leave blank to keep the existing password, or Google-only access for a new user.",
+    )
+    password2 = forms.CharField(
+        label="Confirm new password", required=False, strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+        help_text=password_validators_help_text_html(),
+    )
 
     def __init__(self, *args, instance=None, **kwargs):
         # Retain compatibility with older clients posting the single role field.
@@ -566,7 +577,10 @@ class UserProvisionForm(forms.Form):
         users = get_user_model().objects.filter(email__iexact=email)
         if self.instance:
             users = users.exclude(pk=self.instance.pk)
-        if users.exists():
+        addresses = EmailAddress.objects.filter(email__iexact=email)
+        if self.instance:
+            addresses = addresses.exclude(user=self.instance)
+        if users.exists() or addresses.exists():
             raise forms.ValidationError("A user with this email address already exists.")
         return email
 
@@ -577,6 +591,24 @@ class UserProvisionForm(forms.Form):
         ):
             raise forms.ValidationError("Reassign this executive's CRM records and legacy escalation routes before changing their role.")
         return roles
+
+    def clean(self):
+        cleaned = super().clean()
+        password1, password2 = cleaned.get("password1"), cleaned.get("password2")
+        if password1 or password2:
+            if password1 != password2:
+                self.add_error("password2", "The two passwords do not match.")
+            elif password1:
+                parts = cleaned.get("full_name", "").split(" ", 1)
+                candidate = get_user_model()(
+                    username=cleaned.get("email", ""), email=cleaned.get("email", ""),
+                    first_name=parts[0], last_name=parts[1] if len(parts) > 1 else "",
+                )
+                try:
+                    validate_password(password1, candidate)
+                except forms.ValidationError as error:
+                    self.add_error("password1", error)
+        return cleaned
 
     @transaction.atomic
     def save(self):
@@ -604,16 +636,23 @@ class UserProvisionForm(forms.Form):
             user.is_active = True
         if old_email and old_email != email:
             user.set_unusable_password()
+        if self.cleaned_data.get("password1"):
+            user.set_password(self.cleaned_data["password1"])
         user.save()
         if old_email and old_email != email:
             user.socialaccount_set.all().delete()
         profile, _ = Profile.objects.get_or_create(user=user)
+        if self.cleaned_data.get("password1") or (old_email and old_email != email):
+            profile.password_provisioned_by_admin = bool(self.cleaned_data.get("password1"))
+            profile.save(update_fields=["password_provisioned_by_admin"])
         profile.set_roles(self.cleaned_data["roles"])
         user.profile = profile
         email_address = EmailAddress.objects.filter(user=user, primary=True).first()
         if email_address:
+            email_changed = email_address.email.lower() != email
             email_address.email = email
-            email_address.verified = False
+            if email_changed:
+                email_address.verified = False
             email_address.save(update_fields=["email", "verified"])
         else:
             EmailAddress.objects.create(user=user, email=email, verified=False, primary=True)

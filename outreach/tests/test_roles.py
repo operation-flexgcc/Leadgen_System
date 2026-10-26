@@ -584,8 +584,11 @@ class RoleMigrationTests(TransactionTestCase):
             )
             executor = MigrationExecutor(connection)
             executor.migrate([latest])
-            self.assertEqual(ApiAccessToken.objects.get(pk=token.pk).role, "inside_sales")
-            self.assertEqual(Profile.objects.get(user_id=user.pk).assigned_roles, ["inside_sales"])
+            migrated = executor.loader.project_state([latest]).apps
+            self.assertEqual(migrated.get_model("outreach", "ApiAccessToken").objects.get(pk=token.pk).role, "inside_sales")
+            profile = migrated.get_model("outreach", "Profile").objects.get(user_id=user.pk)
+            self.assertEqual(profile.role, "inside_sales")
+            self.assertFalse(migrated.get_model("outreach", "ProfileRole").objects.filter(profile=profile).exists())
         finally:
             executor = MigrationExecutor(connection)
             executor.migrate(executor.loader.graph.leaf_nodes())
