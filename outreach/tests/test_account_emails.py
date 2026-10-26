@@ -64,7 +64,7 @@ class AccountEmailTests(TestCase):
         response = self.client.get(path)
         self.assertEqual(response.status_code, 302)
         self.assertIn("set-password", response.url)
-        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
         self.assertIn("no-store", response["Cache-Control"])
         form_url = response.url
         self.assertContains(self.client.get(form_url), "Set your password")
@@ -116,6 +116,17 @@ class AccountEmailTests(TestCase):
         inactive = self.client.post(url, {"email": self.person.email})
         self.assertEqual(response.url, unknown.url)
         self.assertEqual(response.url, inactive.url)
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_https_reset_form_preserves_referer_and_accepts_valid_csrf(self):
+        browser = Client(enforce_csrf_checks=True)
+        url = reverse("account_reset_password")
+        response = browser.get(url, secure=True)
+        self.assertEqual(response["Referrer-Policy"], "same-origin")
+        token = re.search(r'name="csrfmiddlewaretoken" value="([^"]+)"', response.content.decode()).group(1)
+        response = browser.post(url, {"email": self.person.email, "csrfmiddlewaretoken": token},
+                                secure=True, HTTP_REFERER="https://testserver" + url)
+        self.assertEqual(response.status_code, 302)
         self.assertEqual(len(mail.outbox), 1)
 
     @override_settings(EMAIL_BACKEND=SENDGRID_BACKEND, SENDGRID_API_KEY="")

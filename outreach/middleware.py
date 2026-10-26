@@ -62,7 +62,9 @@ class ActiveRoleMiddleware:
         response = self.get_response(request)
         if request.path.startswith("/accounts/password/"):
             patch_cache_control(response, no_store=True, private=True)
-            response["Referrer-Policy"] = "no-referrer"
+            # HTTPS CSRF checks may need a same-origin Referer. Allauth removes
+            # the reset token from the URL before displaying the password form.
+            response["Referrer-Policy"] = "same-origin"
         if request.user.is_authenticated and response.get("Content-Type", "").startswith("text/html"):
             patch_cache_control(response, no_store=True, private=True)
         return response
