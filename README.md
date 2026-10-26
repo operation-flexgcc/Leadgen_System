@@ -227,12 +227,28 @@ The current native EC2 deployment for `leadgen.flexgcc.com` is documented in [`d
 - A system admin adds each person's name, email (their login username), and roles at `/system/users/`. Multiple people can hold the same role; they remain separate accounts.
 - To enable password login, fill **New password** and **Confirm new password** when adding/editing a user. Use a unique strong password and share it privately, never in source control or chat. Blank fields retain the existing password; a new user with blank fields is Google-only.
 - Users can sign in at `/login/` with email/password or Google for the same email. Non-Google addresses work with password login. Existing Google accounts and roles are unchanged. Public signup is closed; password login does not create accounts.
-- Users can change their own password with the **Password** link after login. Forgotten passwords are reset by a system admin in **Users → Edit**; this does not depend on SMTP being configured. Passwords are validated and stored using Django password hashing. Resetting a password invalidates older browser sessions on their next request.
+- Users can change their own password with the **Password** link after login or request an emailed link using **Set or reset your password** on the login page. Admins can send a link using **Users → Email password reset**, or set a password directly in **Users → Edit**. Passwords are validated and stored using Django password hashing. Resetting a password invalidates older browser sessions on their next request.
 - Changing an email removes the old Google link and password; supply a new password at the same time or use Google at the new approved email. Normal role/name edits preserve passwords and previously verified email status.
 - Interns and inside-sales users see their own handoffs and owned outreach records, not their peers' assigned records. Legacy **unassigned** prospects are a shared claimable queue within a role; claiming a prospect removes it from peers' queues. Managers/admins retain wider access; CAEs and read-only AI retain their existing CRM visibility. Browser, export and API access is checked server-side. Company API reads/updates for frontline users are limited to their owned records in the active role, even when another channel has the same company identity.
 - System admins cannot remove their own admin role or delete themselves.
 - The last active system admin cannot be downgraded or deleted.
 - `python manage.py set_user_role EMAIL ROLE [ROLE ...]` sets one or more roles for an existing account. Valid values: `intern`, `inside_sales`, `linkedin_outreach`, `account_executive`, `manager`, `system_admin`, `ai_user`. Prefer **Users** for routine changes; this command is for emergency server-side recovery.
+
+### Account emails (SendGrid)
+
+Leadgen uses the same SendGrid service and `ops@flexgcc.com` sender as Operations. Set `SENDGRID_API_KEY` securely in `/var/www/leadgen/repo/.env` using the existing approved production key, and set `SENDGRID_FROM_EMAIL=ops@flexgcc.com` (this sender must be verified in SendGrid). Restart `leadgen` after updating its environment. No workflow change or new pipeline secret is required. Local example keys are intentionally blank. Never put the key in Git, chat, shell arguments, or logs.
+
+Emails contain the recipient's email-as-username, the login page, and a private reset link. No stored password is retrievable or emailed. Links expire in 24 hours and are invalidated by a successful password change. Sending a link does not change the password, role, or account status. Link tracking is disabled. Account creation does not send mail automatically; sending is an explicit admin action or user reset request. A missing configuration is reported without crashing login or preventing account creation. Unknown/inactive public requests do not send email or disclose account existence.
+
+For an approved one-time server-side send, using the existing production environment and venv:
+
+```bash
+python manage.py send_account_setup_email person@example.com --role inside_sales
+# Review recipients above; only --send actually sends mail.
+python manage.py send_account_setup_email person@example.com --role inside_sales --send
+```
+
+The command validates all recipients before sending, sends each separately, and reports provider acceptance without printing tokens or links. SendGrid HTTP 202 confirms acceptance, not inbox delivery. A timeout can have an ambiguous outcome; check SendGrid activity before retrying to avoid duplicate emails.
 
 ## Architecture
 

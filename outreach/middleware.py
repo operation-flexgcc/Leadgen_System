@@ -60,6 +60,9 @@ class ActiveRoleMiddleware:
                 patch_cache_control(response, no_store=True, private=True)
                 return response
         response = self.get_response(request)
+        if request.path.startswith("/accounts/password/"):
+            patch_cache_control(response, no_store=True, private=True)
+            response["Referrer-Policy"] = "no-referrer"
         if request.user.is_authenticated and response.get("Content-Type", "").startswith("text/html"):
             patch_cache_control(response, no_store=True, private=True)
         return response

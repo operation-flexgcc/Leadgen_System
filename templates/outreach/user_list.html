@@ -44,6 +44,7 @@
                     <td>
                         {% if current_user_is_system_admin %}<div class="row-actions">
                             <a href="{% url 'user_update' profile.user_id %}">Edit</a>
+                            {% if profile.user.is_active %}<form method="post" action="{% url 'user_send_password_reset' profile.user_id %}">{% csrf_token %}<button type="submit">Email password reset</button></form>{% endif %}
                             {% if not profile.user.is_active %}
                             <form method="post" action="{% url 'user_restore' profile.user_id %}">{% csrf_token %}<button type="submit">Restore</button></form>
                             {% elif profile.user != user %}

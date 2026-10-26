@@ -127,6 +127,22 @@ LOGOUT_REDIRECT_URL = "/login/"
 ACCOUNT_LOGIN_METHODS = {"email"}
 ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
 ACCOUNT_ADAPTER = "outreach.adapters.FlexGCCAccountAdapter"
+ACCOUNT_FORMS = {
+    "reset_password": "outreach.account_forms.PasswordResetForm",
+    "reset_password_from_key": "outreach.account_forms.PasswordResetKeyForm",
+    "user_token": "outreach.account_forms.ActiveUserTokenForm",
+}
+ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS = False
+ACCOUNT_EMAIL_SUBJECT_PREFIX = "[FlexGCC Leadgen] "
+PASSWORD_RESET_TIMEOUT = 24 * 60 * 60
+# Reset links never derive their origin from an incoming Host header.
+LEADGEN_PUBLIC_URL = "https://leadgen.flexgcc.com"
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "").strip()
+SENDGRID_FROM_EMAIL = os.getenv("SENDGRID_FROM_EMAIL", "ops@flexgcc.com").strip()
+SENDGRID_FROM_NAME = "FlexGCC Leadgen"
+EMAIL_BACKEND = "outreach.email_backends.SendGridEmailBackend"
+DEFAULT_FROM_EMAIL = SENDGRID_FROM_EMAIL
+EMAIL_TIMEOUT = 15
 ACCOUNT_EMAIL_VERIFICATION = "none"
 ACCOUNT_UNIQUE_EMAIL = True
 SOCIALACCOUNT_EMAIL_VERIFICATION = "none"

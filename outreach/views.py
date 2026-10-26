@@ -4,7 +4,7 @@ from io import BytesIO
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import redirect_to_login
-from django.contrib.auth import SESSION_KEY
+from django.contrib.auth import SESSION_KEY, get_user_model
 from django.contrib.sessions.models import Session
 from django.core.paginator import Paginator
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -20,6 +20,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_http_methods, require_POST
 from django.views.decorators.debug import sensitive_post_parameters
 from allauth.account.views import LoginView
+from allauth.core import ratelimit
 
 from .bulk_import import (
     BulkImportFileError,
@@ -48,6 +49,8 @@ from .permissions import (
 )
 from .workflows import sync_prospect_from_outreach
 from .legacy_handoffs import ensure_handoff
+from .account_emails import send_password_setup_email
+from .email_backends import EmailDeliveryError
 
 
 REQUIRED_HEALTH_TABLES = {
@@ -666,6 +669,23 @@ def user_update(request, pk):
             messages.success(request, f"{user.get_full_name()} was updated.")
             return redirect("user_list")
     return render(request, "outreach/user_form.html", {"form": form, "target_user": target, "title": "Edit user"})
+
+
+@login_required
+@require_POST
+def user_send_password_reset(request, pk):
+    require_system_admin(request.user)
+    target = get_object_or_404(get_user_model(), pk=pk, is_active=True)
+    limited = ratelimit.consume_or_429(request, action="reset_password", key=target.email.lower())
+    if limited:
+        return limited
+    try:
+        send_password_setup_email(target)
+    except EmailDeliveryError as error:
+        messages.error(request, str(error))
+    else:
+        messages.success(request, f"The email provider accepted a password-reset email for {target.email}. Inbox delivery is not yet confirmed.")
+    return redirect("user_list")
 
 
 @login_required

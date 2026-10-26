@@ -5,6 +5,8 @@ from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.shortcuts import render
+from django.urls import reverse
+from urllib.parse import quote
 
 from .models import Profile
 
@@ -13,6 +15,10 @@ class FlexGCCAccountAdapter(DefaultAccountAdapter):
     def is_open_for_signup(self, request):
         # Password login is for admin-provisioned accounts, never public signup.
         return False
+
+    def get_reset_password_from_key_url(self, key):
+        path = reverse("account_reset_password_from_key", kwargs={"uidb36": "UID", "key": "KEY"})
+        return settings.LEADGEN_PUBLIC_URL + path.replace("UID-KEY", quote(key, safe="-"))
 
 
 class FlexGCCSocialAccountAdapter(DefaultSocialAccountAdapter):

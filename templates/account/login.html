@@ -27,7 +27,7 @@
         {% if redirect_field_value %}<input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">{% endif %}
         <button class="button button-block" type="submit">Sign in with password</button>
     </form>
-    <p class="login-note">Need a password or forgot it? Contact your system administrator. Public registration is not available.</p>
+    <p class="login-note"><a href="{% url 'account_reset_password' %}">Set or reset your password</a>. Contact your system administrator if you need help. Public registration is not available.</p>
     <p class="login-divider">or</p>
     <form method="post" action="/accounts/google/login/">
         {% csrf_token %}
