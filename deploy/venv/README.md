@@ -59,6 +59,8 @@ sudo install -m 0440 /var/www/leadgen/repo/deploy/venv/leadgen.sudoers.example /
 
 Keep `.env` readable only by the service/deployment account (for example mode `0600` owned by `ubuntu`). Use shell-safe assignments compatible with both Bash and systemd. See [.env.production.example](../../.env.production.example). Required values include `DJANGO_DEBUG=False`, a strong `DJANGO_SECRET_KEY`, allowed hosts, trusted HTTPS origins, a PostgreSQL `DATABASE_URL`, Google OAuth client ID/secret, and `SYSTEM_ADMIN_EMAILS`. The pipeline never prints or rewrites `.env` and refuses to fall back to SQLite.
 
+Authentication rate limits use `ALLAUTH_TRUSTED_PROXY_COUNT=1` by default when `DJANGO_DEBUG=False`, matching the existing Nginx → private Gunicorn Unix socket deployment. Nginx must append the real visitor address with `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. The rightmost address is used, not client-supplied prefixes. Do not expose Gunicorn directly or copy this proxy count to a different network topology without review. Direct local development defaults to zero trusted proxies. An absent/invalid client IP fails closed; rate limits must not be disabled to work around a proxy configuration error.
+
 This repository is currently public: the server fetches its credential-free HTTPS URL, and normalizes `origin` to that URL after a successful fetch. No GitHub PAT is needed on EC2. Revoke any token previously shared or embedded in a remote URL, and clear the old credentialed URL without printing it:
 
 ```bash

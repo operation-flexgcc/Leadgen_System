@@ -12,10 +12,11 @@ from django.contrib.auth import get_user_model, SESSION_KEY
 from django.core import mail
 from django.core.cache import cache
 from django.core.management import call_command, CommandError
-from django.test import Client, TestCase, override_settings
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from outreach.account_emails import send_password_setup_email
+from outreach.adapters import FlexGCCAccountAdapter
 from outreach.email_backends import EmailDeliveryError, SendGridEmailBackend
 from outreach.models import Profile
 
@@ -128,6 +129,44 @@ class AccountEmailTests(TestCase):
                                 secure=True, HTTP_REFERER="https://testserver" + url)
         self.assertEqual(response.status_code, 302)
         self.assertEqual(len(mail.outbox), 1)
+
+    @override_settings(ALLAUTH_TRUSTED_PROXY_COUNT=1)
+    def test_production_unix_socket_can_request_email_and_log_in(self):
+        metadata = {"REMOTE_ADDR": "", "HTTP_X_FORWARDED_FOR": "198.51.100.12"}
+        response = self.client.post(reverse("account_reset_password"), {"email": self.person.email}, **metadata)
+        self.assertRedirects(response, reverse("account_reset_password_done"))
+        self.assertEqual(len(mail.outbox), 1)
+        response = self.client.post(reverse("account_login"), {
+            "login": self.person.email, "password": OLD_PASSWORD,
+        }, **metadata)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session[SESSION_KEY], str(self.person.pk))
+
+    @override_settings(ALLAUTH_TRUSTED_PROXY_COUNT=1, ACCOUNT_RATE_LIMITS={"reset_password": "1/m/ip"})
+    def test_spoofing_forwarded_prefix_cannot_bypass_proxy_ip_rate_limit(self):
+        url = reverse("account_reset_password")
+        first = self.client.post(url, {"email": self.person.email}, REMOTE_ADDR="",
+                                 HTTP_X_FORWARDED_FOR="192.0.2.1, 198.51.100.12")
+        self.assertEqual(first.status_code, 302)
+        second = self.client.post(url, {"email": self.admin.email}, REMOTE_ADDR="",
+                                  HTTP_X_FORWARDED_FOR="192.0.2.99, 198.51.100.12")
+        self.assertEqual(second.status_code, 429)
+        other_visitor = self.client.post(url, {"email": self.admin.email}, REMOTE_ADDR="",
+                                        HTTP_X_FORWARDED_FOR="198.51.100.13")
+        self.assertEqual(other_visitor.status_code, 302)
+        self.assertEqual(len(mail.outbox), 2)
+
+    @override_settings(ALLAUTH_TRUSTED_PROXY_COUNT=1)
+    def test_invalid_proxy_ip_fails_closed_without_sending(self):
+        response = self.client.post(reverse("account_reset_password"), {"email": self.person.email},
+                                    REMOTE_ADDR="", HTTP_X_FORWARDED_FOR="not-an-ip")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(len(mail.outbox), 0)
+
+    @override_settings(ALLAUTH_TRUSTED_PROXY_COUNT=0)
+    def test_direct_development_ignores_forwarded_header(self):
+        request = RequestFactory().get("/", REMOTE_ADDR="127.0.0.1", HTTP_X_FORWARDED_FOR="192.0.2.99")
+        self.assertEqual(FlexGCCAccountAdapter().get_client_ip(request), "127.0.0.1")
 
     @override_settings(EMAIL_BACKEND=SENDGRID_BACKEND, SENDGRID_API_KEY="")
     def test_missing_config_has_safe_error_for_every_public_address(self):

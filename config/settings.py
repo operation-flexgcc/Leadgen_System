@@ -134,6 +134,13 @@ ACCOUNT_FORMS = {
 }
 ACCOUNT_EMAIL_UNKNOWN_ACCOUNTS = False
 ACCOUNT_EMAIL_SUBJECT_PREFIX = "[FlexGCC Leadgen] "
+# Production is Nginx -> private Gunicorn Unix socket. Gunicorn has no TCP
+# REMOTE_ADDR there; use the rightmost address appended by our one trusted
+# proxy, never the spoofable leftmost X-Forwarded-For value. Direct local dev
+# connections continue to ignore forwarded headers.
+ALLAUTH_TRUSTED_PROXY_COUNT = int(os.getenv("ALLAUTH_TRUSTED_PROXY_COUNT", "0" if DEBUG else "1"))
+if ALLAUTH_TRUSTED_PROXY_COUNT < 0:
+    raise ImproperlyConfigured("ALLAUTH_TRUSTED_PROXY_COUNT cannot be negative.")
 PASSWORD_RESET_TIMEOUT = 24 * 60 * 60
 # Reset links never derive their origin from an incoming Host header.
 LEADGEN_PUBLIC_URL = "https://leadgen.flexgcc.com"
